@@ -32,7 +32,7 @@ function fmt(n) {
   return Number(n).toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-const STORE_KEY = "risparmia_v4";
+const STORE_KEY = "risparmia_v5";
 function loadData() {
   try { const d = localStorage.getItem(STORE_KEY); return d ? JSON.parse(d) : null; } catch { return null; }
 }
@@ -43,6 +43,7 @@ function saveData(data) {
 export default function App() {
   const today = new Date();
   const [tab, setTab] = useState("calendario");
+  const [prevTab, setPrevTab] = useState("calendario");
   const [curYear, setCurYear] = useState(today.getFullYear());
   const [curMonth, setCurMonth] = useState(today.getMonth());
   const [selDay, setSelDay] = useState(today.getDate());
@@ -57,6 +58,7 @@ export default function App() {
   const [themeId, setThemeId] = useState("verde");
   const [showPresetModal, setShowPresetModal] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [tipoSpesaFissa, setTipoSpesaFissa] = useState("mensile");
 
   const [customDesc, setCustomDesc] = useState("");
   const [customAmt, setCustomAmt] = useState("");
@@ -75,6 +77,13 @@ export default function App() {
   const [sfAmt, setSfAmt] = useState("");
   const [sfCat, setSfCat] = useState("altro");
   const [sfGiorno, setSfGiorno] = useState("");
+
+  const [spDesc, setSpDesc] = useState("");
+  const [spAmt, setSpAmt] = useState("");
+  const [spCat, setSpCat] = useState("altro");
+  const [spGiornoInizio, setSpGiornoInizio] = useState("");
+  const [spGiornoFine, setSpGiornoFine] = useState("");
+  const [spFreq, setSpFreq] = useState("1");
 
   const [storYear, setStorYear] = useState(today.getFullYear());
   const [storMonth, setStorMonth] = useState(today.getMonth() === 0 ? 11 : today.getMonth() - 1);
@@ -100,28 +109,64 @@ export default function App() {
 
   const theme = THEMES.find(t => t.id === themeId) || THEMES[0];
   const CATEGORIES = [...DEFAULT_CATEGORIES, ...extraCats];
-
   const getCatEmoji = (id) => CATEGORIES.find(c => c.id === id)?.emoji || "⭐";
   const getCatLabel = (id) => CATEGORIES.find(c => c.id === id)?.label || id;
   const getCatColor = (id) => CAT_COLORS[id] || theme.accent;
 
   const monthKey = `${curYear}-${curMonth}`;
 
+  function calcSaldo(year, month, depth) {
+    if (depth > 24) return 0;
+    let pm = month - 1, py = year;
+    if (pm < 0) { pm = 11; py--; }
+    const pk = `${py}-${pm}`;
+    const hasData = entrate[pk] || spese[pk];
+    if (!hasData) return 0;
+    const prevSaldo = calcSaldo(py, pm, depth + 1);
+    const prevEnt = (entrate[pk] || []).reduce((s, x) => s + x.importo, 0);
+    const prevSp = Object.values(spese[pk] || {}).flat().reduce((s, x) => s + x.importo, 0);
+    const prevFisse = speseFisse.filter(x => x.tipo !== "periodica").reduce((s, x) => s + x.importo, 0);
+    const prevPeriodiche = speseFisse.filter(x => x.tipo === "periodica").reduce((acc, sp) => {
+      const inizio = sp.giornoInizio || 1;
+      const fine = sp.giornoFine || 28;
+      const freq = sp.freq || 1;
+      let tot = 0;
+      for (let g = inizio; g <= fine; g += freq) tot += sp.importo;
+      return acc + tot;
+    }, 0);
+    return prevSaldo + prevEnt - prevSp - prevFisse - prevPeriodiche;
+  }
+
+  const saldoPortato = useMemo(() => calcSaldo(curYear, curMonth, 0), [curYear, curMonth, spese, entrate, speseFisse]);
+
   const speseDelMese = useMemo(() => {
     const mese = spese[monthKey] || {};
     return Object.values(mese).flat();
   }, [spese, monthKey]);
 
+  const spesePeriodicheDelMese = useMemo(() => {
+    return speseFisse.filter(x => x.tipo === "periodica").reduce((acc, sp) => {
+      const inizio = sp.giornoInizio || 1;
+      const fine = sp.giornoFine || 28;
+      const freq = sp.freq || 1;
+      for (let g = inizio; g <= fine; g += freq) {
+        acc.push({ ...sp, giornoEffettivo: Math.round(g) });
+      }
+      return acc;
+    }, []);
+  }, [speseFisse]);
+
   const totaleSpeseM = speseDelMese.reduce((s, x) => s + x.importo, 0);
-  const totaleSpeseFixedM = speseFisse.reduce((s, x) => s + x.importo, 0);
-  const totaleSpeseAll = totaleSpeseM + totaleSpeseFixedM;
+  const totaleSpeseFixedM = speseFisse.filter(x => x.tipo !== "periodica").reduce((s, x) => s + x.importo, 0);
+  const totaleSpesePeriodicheM = spesePeriodicheDelMese.reduce((s, x) => s + x.importo, 0);
+  const totaleSpeseAll = totaleSpeseM + totaleSpeseFixedM + totaleSpesePeriodicheM;
 
   const totalEntrateM = useMemo(() => {
     return (entrate[monthKey] || []).reduce((s, x) => s + x.importo, 0);
   }, [entrate, monthKey]);
 
-  const risparmioNetto = totalEntrateM - totaleSpeseAll;
-  const percSpesa = totalEntrateM > 0 ? (totaleSpeseAll / totalEntrateM * 100).toFixed(1) : null;
+  const risparmioNetto = saldoPortato + totalEntrateM - totaleSpeseAll;
+  const percSpesa = (saldoPortato + totalEntrateM) > 0 ? (totaleSpeseAll / (saldoPortato + totalEntrateM) * 100).toFixed(1) : null;
 
   const daysInMonth = new Date(curYear, curMonth + 1, 0).getDate();
   const firstDow = (new Date(curYear, curMonth, 1).getDay() + 6) % 7;
@@ -134,31 +179,43 @@ export default function App() {
   const spesePCat = useMemo(() => {
     const acc = {};
     speseDelMese.forEach(x => { acc[x.cat] = (acc[x.cat] || 0) + x.importo; });
-    speseFisse.forEach(x => { acc[x.cat] = (acc[x.cat] || 0) + x.importo; });
+    speseFisse.filter(x => x.tipo !== "periodica").forEach(x => { acc[x.cat] = (acc[x.cat] || 0) + x.importo; });
+    spesePeriodicheDelMese.forEach(x => { acc[x.cat] = (acc[x.cat] || 0) + x.importo; });
     return Object.entries(acc).sort((a, b) => b[1] - a[1]);
-  }, [speseDelMese, speseFisse]);
+  }, [speseDelMese, speseFisse, spesePeriodicheDelMese]);
 
   const top5 = useMemo(() => {
     const acc = {};
     speseDelMese.forEach(x => { acc[x.desc] = (acc[x.desc] || 0) + x.importo; });
-    speseFisse.forEach(x => { acc[x.desc] = (acc[x.desc] || 0) + x.importo; });
+    speseFisse.filter(x => x.tipo !== "periodica").forEach(x => { acc[x.desc] = (acc[x.desc] || 0) + x.importo; });
+    spesePeriodicheDelMese.forEach(x => { acc[x.desc] = (acc[x.desc] || 0) + x.importo; });
     return Object.entries(acc).sort((a, b) => b[1] - a[1]).slice(0, 5);
-  }, [speseDelMese, speseFisse]);
+  }, [speseDelMese, speseFisse, spesePeriodicheDelMese]);
 
   const storKey = `${storYear}-${storMonth}`;
   const storSpeseRaw = useMemo(() => {
     const mese = spese[storKey] || {};
     return Object.entries(mese).flatMap(([day, arr]) => arr.map(x => ({ ...x, giorno: parseInt(day) })));
   }, [spese, storKey]);
-  const storTotaleSpese = storSpeseRaw.reduce((s, x) => s + x.importo, 0) + speseFisse.reduce((s, x) => s + x.importo, 0);
+  const storSaldoPortato = useMemo(() => calcSaldo(storYear, storMonth, 0), [storYear, storMonth, spese, entrate, speseFisse]);
+  const storFisse = speseFisse.filter(x => x.tipo !== "periodica").reduce((s, x) => s + x.importo, 0);
+  const storPeriodiche = speseFisse.filter(x => x.tipo === "periodica").reduce((acc, sp) => {
+    const inizio = sp.giornoInizio || 1;
+    const fine = sp.giornoFine || 28;
+    const freq = sp.freq || 1;
+    let tot = 0;
+    for (let g = inizio; g <= fine; g += freq) tot += sp.importo;
+    return acc + tot;
+  }, 0);
+  const storTotaleSpese = storSpeseRaw.reduce((s, x) => s + x.importo, 0) + storFisse + storPeriodiche;
   const storEntrate = entrate[storKey] || [];
   const storTotaleEntrate = storEntrate.reduce((s, x) => s + x.importo, 0);
-  const storRisparmio = storTotaleEntrate - storTotaleSpese;
-  const storPercSpesa = storTotaleEntrate > 0 ? (storTotaleSpese / storTotaleEntrate * 100).toFixed(1) : null;
+  const storRisparmio = storSaldoPortato + storTotaleEntrate - storTotaleSpese;
+  const storPercSpesa = (storSaldoPortato + storTotaleEntrate) > 0 ? (storTotaleSpese / (storSaldoPortato + storTotaleEntrate) * 100).toFixed(1) : null;
   const storCat = useMemo(() => {
     const acc = {};
     storSpeseRaw.forEach(x => { acc[x.cat] = (acc[x.cat] || 0) + x.importo; });
-    speseFisse.forEach(x => { acc[x.cat] = (acc[x.cat] || 0) + x.importo; });
+    speseFisse.filter(x => x.tipo !== "periodica").forEach(x => { acc[x.cat] = (acc[x.cat] || 0) + x.importo; });
     return Object.entries(acc).sort((a, b) => b[1] - a[1]);
   }, [storSpeseRaw, speseFisse]);
 
@@ -209,8 +266,18 @@ export default function App() {
     const amt = parseFloat(sfAmt);
     if (!sfDesc.trim() || !amt || amt <= 0) return;
     const giorno = sfGiorno ? parseInt(sfGiorno) : null;
-    setSpeseFisse(prev => [...prev, { id: Date.now(), desc: sfDesc, importo: amt, cat: sfCat, giorno }]);
+    setSpeseFisse(prev => [...prev, { id: Date.now(), desc: sfDesc, importo: amt, cat: sfCat, giorno, tipo: "mensile" }]);
     setSfDesc(""); setSfAmt(""); setSfCat("altro"); setSfGiorno("");
+  }
+
+  function addSpesaPeriodica() {
+    const amt = parseFloat(spAmt);
+    const inizio = parseInt(spGiornoInizio);
+    const fine = parseInt(spGiornoFine);
+    const freq = parseInt(spFreq) || 1;
+    if (!spDesc.trim() || !amt || amt <= 0 || !inizio || !fine || inizio > fine) return;
+    setSpeseFisse(prev => [...prev, { id: Date.now(), desc: spDesc, importo: amt, cat: spCat, giornoInizio: inizio, giornoFine: fine, freq, tipo: "periodica" }]);
+    setSpDesc(""); setSpAmt(""); setSpCat("altro"); setSpGiornoInizio(""); setSpGiornoFine(""); setSpFreq("1");
   }
 
   function addExtraCat() {
@@ -231,24 +298,35 @@ export default function App() {
     setShowResetConfirm(false);
   }
 
+  function handleGear() {
+    if (tab === "impostazioni") {
+      setTab(prevTab);
+    } else {
+      setPrevTab(tab);
+      setTab("impostazioni");
+    }
+  }
+
   const speseSelDay = spese[monthKey]?.[selDay] || [];
-  const speseFisseSelDay = speseFisse.filter(x => x.giorno === selDay);
-  const totaleSelDay = speseSelDay.reduce((s, x) => s + x.importo, 0) + speseFisseSelDay.reduce((s, x) => s + x.importo, 0);
+  const speseFisseSelDay = speseFisse.filter(x => x.tipo !== "periodica" && x.giorno === selDay);
+  const spesePeriodicheSelDay = spesePeriodicheDelMese.filter(x => x.giornoEffettivo === selDay);
+  const totaleSelDay = speseSelDay.reduce((s, x) => s + x.importo, 0)
+    + speseFisseSelDay.reduce((s, x) => s + x.importo, 0)
+    + spesePeriodicheSelDay.reduce((s, x) => s + x.importo, 0);
 
   const s = {
     app: { background: theme.bg, minHeight: "100vh", display: "flex", flexDirection: "column", fontFamily: "system-ui,sans-serif", color: "#e2e8f0", maxWidth: 430, margin: "0 auto" },
-    header: { padding: "16px 16px 8px", display: "flex", justifyContent: "space-between", alignItems: "center" },
     logoBox: { width: 36, height: 36, borderRadius: 10, background: theme.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 },
-    presetBtn: { background: theme.card, border: `1px solid ${theme.border}`, borderRadius: 8, color: "#e2e8f0", padding: "6px 12px", fontSize: 13, cursor: "pointer" },
-    kpiGrid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, padding: "0 16px 12px" },
+    presetBtn: { background: theme.card, border: `1px solid ${theme.border}`, borderRadius: 8, color: "#e2e8f0", padding: "0 10px", height: 36, fontSize: 11, cursor: "pointer", whiteSpace: "nowrap" },
+    kpiGrid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 },
     kpi: { background: theme.card, borderRadius: 10, padding: "10px 12px" },
     kpiLabel: { fontSize: 10, color: theme.sub, textTransform: "uppercase", letterSpacing: 0.5, margin: 0 },
-    kpiVal: (col) => ({ fontSize: 20, fontWeight: 700, color: col || "#fbbf24", margin: "2px 0 0" }),
-    tabs: { display: "flex", background: theme.card, margin: "0 16px 12px", borderRadius: 10, padding: 3, gap: 2 },
-    tabBtn: (active) => ({ flex: 1, padding: "7px 0", borderRadius: 8, border: "none", background: active ? theme.bg : "transparent", color: active ? "#e2e8f0" : theme.sub, fontSize: 10, cursor: "pointer", fontWeight: active ? 600 : 400 }),
+    kpiVal: (col) => ({ fontSize: 18, fontWeight: 700, color: col || "#fbbf24", margin: "2px 0 0" }),
+    tabs: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4, background: theme.card, margin: "0 16px 12px", borderRadius: 12, padding: 4 },
+    tabBtn: (active) => ({ padding: "10px 0", borderRadius: 8, border: "none", background: active ? theme.bg : "transparent", color: active ? "#e2e8f0" : theme.sub, fontSize: 12, cursor: "pointer", fontWeight: active ? 600 : 400 }),
     content: { flex: 1, padding: "0 16px 80px" },
     card: { background: theme.card, borderRadius: 12, padding: "14px", marginBottom: 12 },
-    sectionTitle: { fontSize: 13, fontWeight: 600, color: "#e2e8f0", margin: "0 0 10px" },
+    sectionTitle: { fontSize: 16, fontWeight: 600, color: "#e2e8f0", margin: "0 0 10px" },
     label: { fontSize: 11, color: theme.sub, margin: "0 0 4px" },
     input: { width: "100%", background: theme.bg, border: `1px solid ${theme.border}`, borderRadius: 8, color: "#e2e8f0", padding: "8px 10px", fontSize: 14, boxSizing: "border-box" },
     greenBtn: { width: "100%", background: theme.accent, border: "none", borderRadius: 8, color: theme.bg, padding: "11px", fontSize: 15, fontWeight: 700, cursor: "pointer", marginTop: 8 },
@@ -257,11 +335,27 @@ export default function App() {
     presetChip: { background: theme.bg, border: `1px solid ${theme.border}`, borderRadius: 10, padding: "10px 12px", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, marginBottom: 8 },
     delBtn: { background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontSize: 16, padding: 0 },
     row: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: `1px solid ${theme.bg}` },
+    segmented: (active) => ({ flex: 1, padding: "7px 0", borderRadius: 8, border: "none", background: active ? theme.accent : theme.bg, color: active ? theme.bg : theme.sub, fontSize: 12, cursor: "pointer", fontWeight: active ? 600 : 400 }),
   };
+
+  const KpiSection = () => (
+    <div style={s.kpiGrid}>
+      {saldoPortato !== 0 && (
+        <div style={{ ...s.kpi, gridColumn: "1 / -1" }}>
+          <p style={s.kpiLabel}>Saldo da mese precedente</p>
+          <p style={s.kpiVal(saldoPortato >= 0 ? theme.accent : "#f87171")}>{fmt(saldoPortato)} €</p>
+        </div>
+      )}
+      <div style={s.kpi}><p style={s.kpiLabel}>Entrate mese</p><p style={s.kpiVal("#fbbf24")}>{fmt(totalEntrateM)} €</p></div>
+      <div style={s.kpi}><p style={s.kpiLabel}>Spese mese</p><p style={s.kpiVal(theme.accent)}>{fmt(totaleSpeseAll)} €</p></div>
+      <div style={s.kpi}><p style={s.kpiLabel}>Risparmio netto</p><p style={s.kpiVal(risparmioNetto >= 0 ? theme.accent : "#f87171")}>{fmt(risparmioNetto)} €</p></div>
+      <div style={s.kpi}><p style={s.kpiLabel}>% Spesa / Entrate</p><p style={s.kpiVal(theme.accent)}>{percSpesa !== null ? percSpesa + "%" : "---"}</p></div>
+    </div>
+  );
 
   return (
     <div style={s.app}>
-      <div style={s.header}>
+      <div style={{ padding: "16px 16px 8px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <div style={s.logoBox}>💼</div>
           <div>
@@ -269,26 +363,24 @@ export default function App() {
             <p style={{ fontSize: 11, color: theme.sub, margin: 0 }}>Traccia ogni spesa, costruisci il tuo futuro</p>
           </div>
         </div>
-        <button style={{ ...s.presetBtn, height: 36, fontSize: 11, padding: "0 10px", whiteSpace: "nowrap" }} onClick={() => setShowPresetModal(true)}>+ preset</button>
-        <button onClick={() => setTab("impostazioni")} style={{ background: tab === "impostazioni" ? theme.accent : theme.card, border: `1px solid ${theme.border}`, borderRadius: 8, color: tab === "impostazioni" ? theme.bg : "#e2e8f0", width: 36, height: 36, fontSize: 18, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>⚙</button>
-      </div>
-
-      <div style={s.kpiGrid}>
-        <div style={s.kpi}><p style={s.kpiLabel}>Entrate mese</p><p style={s.kpiVal("#fbbf24")}>{fmt(totalEntrateM)} €</p></div>
-        <div style={s.kpi}><p style={s.kpiLabel}>Spese mese</p><p style={s.kpiVal(theme.accent)}>{fmt(totaleSpeseAll)} €</p></div>
-        <div style={s.kpi}><p style={s.kpiLabel}>Risparmio netto</p><p style={s.kpiVal(theme.accent)}>{fmt(risparmioNetto)} €</p></div>
-        <div style={s.kpi}><p style={s.kpiLabel}>% Spesa / Entrate</p><p style={s.kpiVal(theme.accent)}>{percSpesa !== null ? percSpesa + "%" : "—"}</p></div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button style={s.presetBtn} onClick={() => setShowPresetModal(true)}>+ preset</button>
+          <button onClick={handleGear} style={{ background: tab === "impostazioni" ? theme.accent : theme.card, border: `1px solid ${theme.border}`, borderRadius: 8, color: tab === "impostazioni" ? theme.bg : "#e2e8f0", width: 36, height: 36, fontSize: 18, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>⚙</button>
+        </div>
       </div>
 
       <div style={s.tabs}>
-        {[["calendario","📅 Cal."],["statistiche","📊 Stat."],["entrate","↕ Entrate"],["storico","🗂 Storico"]].map(([k, l]) => (
+        {[["calendario","📅 Calendario"],["statistiche","📊 Statistiche"],["entrate","↕ Entrate"],["storico","🗂 Storico"]].map(([k, l]) => (
           <button key={k} style={s.tabBtn(tab === k)} onClick={() => setTab(k)}>{l}</button>
         ))}
       </div>
 
+      {tab !== "impostazioni" && (
+        <div style={{ padding: "0 16px 12px" }}><KpiSection /></div>
+      )}
+
       <div style={s.content}>
 
-        {/* CALENDARIO */}
         {tab === "calendario" && (
           <>
             <div style={s.card}>
@@ -304,13 +396,14 @@ export default function App() {
                   const d = i + 1;
                   const hasSp = speseDel(d) > 0;
                   const hasEn = (entrate[monthKey] || []).some(x => new Date(x.data).getDate() === d);
-                  const hasFissa = speseFisse.some(x => x.giorno === d);
+                  const hasFissa = speseFisse.some(x => x.tipo !== "periodica" && x.giorno === d);
+                  const hasPeriodica = spesePeriodicheDelMese.some(x => x.giornoEffettivo === d);
                   const isSel = d === selDay;
                   const isToday = d === today.getDate() && curMonth === today.getMonth() && curYear === today.getFullYear();
                   const dots = [];
                   if (hasSp) dots.push(isSel ? theme.bg : theme.accent);
                   if (hasEn) dots.push(isSel ? theme.bg : "#fbbf24");
-                  if (hasFissa) dots.push(isSel ? theme.bg : "#a78bfa");
+                  if (hasFissa || hasPeriodica) dots.push(isSel ? theme.bg : "#a78bfa");
                   return (
                     <div key={d} onClick={() => setSelDay(d)} style={{ padding: "6px 2px", borderRadius: 8, cursor: "pointer", background: isSel ? theme.accent : isToday ? theme.card : "transparent", color: isSel ? theme.bg : "#e2e8f0", fontSize: 13, fontWeight: isSel ? 700 : 400, position: "relative" }}>
                       {d}
@@ -372,9 +465,9 @@ export default function App() {
                 ))}
               </div>
 
-              {(speseSelDay.length > 0 || speseFisseSelDay.length > 0) && (
+              {(speseSelDay.length > 0 || speseFisseSelDay.length > 0 || spesePeriodicheSelDay.length > 0) && (
                 <div style={{ marginTop: 14 }}>
-                  <div style={{ fontSize: 13, color: theme.sub, marginBottom: 6 }}>Spese registrate ({speseSelDay.length + speseFisseSelDay.length})</div>
+                  <div style={{ fontSize: 13, color: theme.sub, marginBottom: 6 }}>Spese registrate ({speseSelDay.length + speseFisseSelDay.length + spesePeriodicheSelDay.length})</div>
                   {speseSelDay.map(x => (
                     <div key={x.id} style={{ ...s.row, flexDirection: "column", alignItems: "flex-start", gap: 4 }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%" }}>
@@ -405,51 +498,108 @@ export default function App() {
                       <span style={{ fontSize: 15, fontWeight: 600, color: "#a78bfa" }}>{fmt(x.importo)} €</span>
                     </div>
                   ))}
+                  {spesePeriodicheSelDay.map((x, i) => (
+                    <div key={x.id + "_" + i} style={s.row}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{ fontSize: 14 }}>{getCatEmoji(x.cat)}</span>
+                        <div>
+                          <div style={{ fontSize: 14 }}>{x.desc}</div>
+                          <div style={{ fontSize: 11, color: "#60a5fa" }}>Periodica · {getCatLabel(x.cat)}</div>
+                        </div>
+                      </div>
+                      <span style={{ fontSize: 15, fontWeight: 600, color: "#60a5fa" }}>{fmt(x.importo)} €</span>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
 
             <div style={s.card}>
-              <div style={s.sectionTitle}>📌 Spese mensili fisse</div>
-              {speseFisse.length === 0
-                ? <div style={{ color: theme.sub, fontSize: 13, fontStyle: "italic", marginBottom: 12 }}>Nessuna spesa fissa aggiunta</div>
-                : speseFisse.map(x => (
-                  <div key={x.id} style={s.row}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <span style={{ fontSize: 14 }}>{getCatEmoji(x.cat)}</span>
-                      <div>
-                        <div style={{ fontSize: 13, fontWeight: 600 }}>{x.desc}</div>
-                        <div style={{ fontSize: 11, color: theme.sub }}>{getCatLabel(x.cat)}{x.giorno ? " · giorno " + x.giorno : " · nessun giorno fisso"}</div>
-                      </div>
-                    </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                      <span style={{ fontSize: 14, fontWeight: 600, color: "#a78bfa" }}>{fmt(x.importo)} €</span>
-                      <button onClick={() => setSpeseFisse(prev => prev.filter(sf => sf.id !== x.id))} style={s.delBtn}>🗑</button>
-                    </div>
-                  </div>
-                ))
-              }
-              <div style={{ marginTop: 14 }}>
-                <div style={{ fontSize: 12, color: theme.sub, marginBottom: 6 }}>Aggiungi spesa fissa</div>
-                <input value={sfDesc} onChange={e => setSfDesc(e.target.value)} placeholder="Es. Affitto, Netflix..." style={{ ...s.input, marginBottom: 8 }} />
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
-                  <div><div style={s.label}>Importo €</div><input value={sfAmt} onChange={e => setSfAmt(e.target.value)} placeholder="0,00" type="number" style={s.input} /></div>
-                  <div><div style={s.label}>Giorno del mese (opz.)</div><input value={sfGiorno} onChange={e => setSfGiorno(e.target.value)} placeholder="Es. 1, 15..." type="number" min="1" max="31" style={s.input} /></div>
-                </div>
-                <div style={s.catGrid}>
-                  {CATEGORIES.map(c => (
-                    <button key={c.id} style={s.catPill(sfCat === c.id)} onClick={() => setSfCat(c.id)}>
-                      <span style={{ fontSize: 14 }}>{c.emoji}</span>{c.label}
-                    </button>
-                  ))}
-                </div>
-                <button style={{ ...s.greenBtn, marginTop: 10 }} onClick={addSpesaFissa}>+ Aggiungi spesa fissa</button>
+              <div style={{ display: "flex", background: theme.bg, borderRadius: 10, padding: 3, gap: 3, marginBottom: 14 }}>
+                <button style={s.segmented(tipoSpesaFissa === "mensile")} onClick={() => setTipoSpesaFissa("mensile")}>📌 Mensile fissa</button>
+                <button style={s.segmented(tipoSpesaFissa === "periodica")} onClick={() => setTipoSpesaFissa("periodica")}>🔁 Periodica</button>
               </div>
+
+              {tipoSpesaFissa === "mensile" && (
+                <>
+                  <div style={s.sectionTitle}>Spese mensili fisse</div>
+                  {speseFisse.filter(x => x.tipo !== "periodica").length === 0
+                    ? <div style={{ color: theme.sub, fontSize: 13, fontStyle: "italic", marginBottom: 12 }}>Nessuna spesa fissa aggiunta</div>
+                    : speseFisse.filter(x => x.tipo !== "periodica").map(x => (
+                      <div key={x.id} style={s.row}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <span style={{ fontSize: 14 }}>{getCatEmoji(x.cat)}</span>
+                          <div>
+                            <div style={{ fontSize: 13, fontWeight: 600 }}>{x.desc}</div>
+                            <div style={{ fontSize: 11, color: theme.sub }}>{getCatLabel(x.cat)}{x.giorno ? " · giorno " + x.giorno : " · nessun giorno fisso"}</div>
+                          </div>
+                        </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                          <span style={{ fontSize: 14, fontWeight: 600, color: "#a78bfa" }}>{fmt(x.importo)} €</span>
+                          <button onClick={() => setSpeseFisse(prev => prev.filter(sf => sf.id !== x.id))} style={s.delBtn}>🗑</button>
+                        </div>
+                      </div>
+                    ))
+                  }
+                  <div style={{ marginTop: 14 }}>
+                    <div style={{ fontSize: 12, color: theme.sub, marginBottom: 6 }}>Aggiungi spesa fissa</div>
+                    <input value={sfDesc} onChange={e => setSfDesc(e.target.value)} placeholder="Es. Affitto, Netflix..." style={{ ...s.input, marginBottom: 8 }} />
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+                      <div><div style={s.label}>Importo €</div><input value={sfAmt} onChange={e => setSfAmt(e.target.value)} placeholder="0,00" type="number" style={s.input} /></div>
+                      <div><div style={s.label}>Giorno del mese (opz.)</div><input value={sfGiorno} onChange={e => setSfGiorno(e.target.value)} placeholder="Es. 4, 20..." type="number" min="1" max="31" style={s.input} /></div>
+                    </div>
+                    <div style={s.catGrid}>
+                      {CATEGORIES.map(c => <button key={c.id} style={s.catPill(sfCat === c.id)} onClick={() => setSfCat(c.id)}><span style={{ fontSize: 14 }}>{c.emoji}</span>{c.label}</button>)}
+                    </div>
+                    <button style={{ ...s.greenBtn, marginTop: 10 }} onClick={addSpesaFissa}>+ Aggiungi spesa fissa</button>
+                  </div>
+                </>
+              )}
+
+              {tipoSpesaFissa === "periodica" && (
+                <>
+                  <div style={s.sectionTitle}>Spese periodiche</div>
+                  {speseFisse.filter(x => x.tipo === "periodica").length === 0
+                    ? <div style={{ color: theme.sub, fontSize: 13, fontStyle: "italic", marginBottom: 12 }}>Nessuna spesa periodica aggiunta</div>
+                    : speseFisse.filter(x => x.tipo === "periodica").map(x => (
+                      <div key={x.id} style={s.row}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <span style={{ fontSize: 14 }}>{getCatEmoji(x.cat)}</span>
+                          <div>
+                            <div style={{ fontSize: 13, fontWeight: 600 }}>{x.desc}</div>
+                            <div style={{ fontSize: 11, color: theme.sub }}>ogni {x.freq}gg · giorni {x.giornoInizio}-{x.giornoFine} · {getCatLabel(x.cat)}</div>
+                          </div>
+                        </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                          <span style={{ fontSize: 14, fontWeight: 600, color: "#60a5fa" }}>{fmt(x.importo)} €</span>
+                          <button onClick={() => setSpeseFisse(prev => prev.filter(sf => sf.id !== x.id))} style={s.delBtn}>🗑</button>
+                        </div>
+                      </div>
+                    ))
+                  }
+                  <div style={{ marginTop: 14 }}>
+                    <div style={{ fontSize: 12, color: theme.sub, marginBottom: 6 }}>Aggiungi spesa periodica</div>
+                    <input value={spDesc} onChange={e => setSpDesc(e.target.value)} placeholder="Es. Pastiglie cane, Palestra..." style={{ ...s.input, marginBottom: 8 }} />
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 8 }}>
+                      <div><div style={s.label}>Importo €</div><input value={spAmt} onChange={e => setSpAmt(e.target.value)} placeholder="0,00" type="number" style={s.input} /></div>
+                      <div><div style={s.label}>Giorno inizio</div><input value={spGiornoInizio} onChange={e => setSpGiornoInizio(e.target.value)} placeholder="Es. 15" type="number" min="1" max="31" style={s.input} /></div>
+                      <div><div style={s.label}>Giorno fine</div><input value={spGiornoFine} onChange={e => setSpGiornoFine(e.target.value)} placeholder="Es. 21" type="number" min="1" max="31" style={s.input} /></div>
+                    </div>
+                    <div style={{ marginBottom: 8 }}>
+                      <div style={s.label}>Ogni quanti giorni</div>
+                      <input value={spFreq} onChange={e => setSpFreq(e.target.value)} placeholder="Es. 1 = ogni giorno, 2 = a giorni alterni" type="number" min="1" max="31" style={s.input} />
+                    </div>
+                    <div style={s.catGrid}>
+                      {CATEGORIES.map(c => <button key={c.id} style={s.catPill(spCat === c.id)} onClick={() => setSpCat(c.id)}><span style={{ fontSize: 14 }}>{c.emoji}</span>{c.label}</button>)}
+                    </div>
+                    <button style={{ ...s.greenBtn, marginTop: 10 }} onClick={addSpesaPeriodica}>+ Aggiungi spesa periodica</button>
+                  </div>
+                </>
+              )}
             </div>
           </>
         )}
 
-        {/* STATISTICHE */}
         {tab === "statistiche" && (
           <>
             <div style={{ fontSize: 11, color: theme.sub, marginBottom: 4 }}>STATISTICHE</div>
@@ -476,7 +626,7 @@ export default function App() {
               }
             </div>
             <div style={s.card}>
-              <div style={s.sectionTitle}>📈 Top 5 voci del mese</div>
+              <div style={s.sectionTitle}>Top 5 voci del mese</div>
               {top5.length === 0
                 ? <div style={{ color: theme.sub, fontSize: 13, fontStyle: "italic" }}>Nessun dato</div>
                 : top5.map(([desc, tot], i) => (
@@ -490,7 +640,6 @@ export default function App() {
           </>
         )}
 
-        {/* ENTRATE */}
         {tab === "entrate" && (
           <>
             <div style={s.card}>
@@ -498,7 +647,7 @@ export default function App() {
                 <div style={{ ...s.logoBox, width: 32, height: 32, borderRadius: 8, fontSize: 15 }}>💼</div>
                 <div>
                   <div style={{ fontWeight: 700, fontSize: 15 }}>Entrate · {MONTHS_IT[curMonth]} {curYear}</div>
-                  <div style={{ fontSize: 11, color: theme.sub }}>Stipendi, bonus, regali — tutto quello che entra</div>
+                  <div style={{ fontSize: 11, color: theme.sub }}>Stipendi, bonus, regali tutto quello che entra</div>
                 </div>
               </div>
               <div style={{ fontSize: 11, color: theme.sub }}>TOTALE ENTRATE DEL MESE</div>
@@ -528,7 +677,6 @@ export default function App() {
           </>
         )}
 
-        {/* STORICO */}
         {tab === "storico" && (
           <>
             <div style={{ fontSize: 11, color: theme.sub, marginBottom: 4 }}>STORICO MENSILE</div>
@@ -538,10 +686,11 @@ export default function App() {
               <button onClick={() => { let m = storMonth + 1, y = storYear; if (m > 11) { m = 0; y++; } setStorMonth(m); setStorYear(y); }} style={{ background: "none", border: "none", color: "#e2e8f0", fontSize: 20, cursor: "pointer" }}>›</button>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
+              {storSaldoPortato !== 0 && <div style={{ ...s.kpi, gridColumn: "1 / -1" }}><p style={s.kpiLabel}>Saldo da mese precedente</p><p style={s.kpiVal(storSaldoPortato >= 0 ? theme.accent : "#f87171")}>{fmt(storSaldoPortato)} €</p></div>}
               <div style={s.kpi}><p style={s.kpiLabel}>Entrate</p><p style={s.kpiVal("#fbbf24")}>{fmt(storTotaleEntrate)} €</p></div>
               <div style={s.kpi}><p style={s.kpiLabel}>Spese totali</p><p style={s.kpiVal(theme.accent)}>{fmt(storTotaleSpese)} €</p></div>
               <div style={s.kpi}><p style={s.kpiLabel}>Risparmio netto</p><p style={s.kpiVal(storRisparmio >= 0 ? theme.accent : "#f87171")}>{fmt(storRisparmio)} €</p></div>
-              <div style={s.kpi}><p style={s.kpiLabel}>% Spesa / Entrate</p><p style={s.kpiVal(theme.accent)}>{storPercSpesa !== null ? storPercSpesa + "%" : "—"}</p></div>
+              <div style={s.kpi}><p style={s.kpiLabel}>% Spesa / Entrate</p><p style={s.kpiVal(theme.accent)}>{storPercSpesa !== null ? storPercSpesa + "%" : "---"}</p></div>
             </div>
             <div style={s.card}>
               <div style={s.sectionTitle}>Entrate ({storEntrate.length})</div>
@@ -573,49 +722,32 @@ export default function App() {
               }
             </div>
             <div style={s.card}>
-              <div style={s.sectionTitle}>Tutte le spese ({storSpeseRaw.length + speseFisse.length})</div>
-              {storSpeseRaw.length === 0 && speseFisse.length === 0
+              <div style={s.sectionTitle}>Tutte le spese ({storSpeseRaw.length})</div>
+              {storSpeseRaw.length === 0
                 ? <div style={{ color: theme.sub, fontSize: 13, fontStyle: "italic" }}>Nessuna spesa registrata</div>
-                : <>
-                  {storSpeseRaw.sort((a, b) => a.giorno - b.giorno).map(x => (
-                    <div key={x.id} style={{ ...s.row, flexDirection: "column", alignItems: "flex-start", gap: 2 }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", width: "100%", alignItems: "center" }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <span style={{ fontSize: 14 }}>{getCatEmoji(x.cat)}</span>
-                          <div>
-                            <div style={{ fontSize: 13 }}>{x.desc}</div>
-                            <div style={{ fontSize: 10, color: theme.sub }}>{getCatLabel(x.cat)} · giorno {x.giorno}</div>
-                          </div>
-                        </div>
-                        <span style={{ color: theme.accent, fontWeight: 600, fontSize: 13 }}>{fmt(x.importo)} €</span>
-                      </div>
-                      {x.note && <div style={{ fontSize: 11, color: theme.sub, paddingLeft: 26, fontStyle: "italic" }}>"{x.note}"</div>}
-                    </div>
-                  ))}
-                  {speseFisse.map(x => (
-                    <div key={x.id} style={s.row}>
+                : storSpeseRaw.sort((a, b) => a.giorno - b.giorno).map(x => (
+                  <div key={x.id} style={{ ...s.row, flexDirection: "column", alignItems: "flex-start", gap: 2 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", width: "100%", alignItems: "center" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                         <span style={{ fontSize: 14 }}>{getCatEmoji(x.cat)}</span>
                         <div>
                           <div style={{ fontSize: 13 }}>{x.desc}</div>
-                          <div style={{ fontSize: 10, color: "#a78bfa" }}>Spesa fissa · {getCatLabel(x.cat)}{x.giorno ? " · giorno " + x.giorno : ""}</div>
+                          <div style={{ fontSize: 10, color: theme.sub }}>{getCatLabel(x.cat)} · giorno {x.giorno}</div>
                         </div>
                       </div>
-                      <span style={{ color: "#a78bfa", fontWeight: 600, fontSize: 13 }}>{fmt(x.importo)} €</span>
+                      <span style={{ color: theme.accent, fontWeight: 600, fontSize: 13 }}>{fmt(x.importo)} €</span>
                     </div>
-                  ))}
-                </>
+                    {x.note && <div style={{ fontSize: 11, color: theme.sub, paddingLeft: 26, fontStyle: "italic" }}>"{x.note}"</div>}
+                  </div>
+                ))
               }
             </div>
           </>
         )}
 
-        {/* IMPOSTAZIONI */}
         {tab === "impostazioni" && (
           <>
             <div style={{ fontSize: 11, color: theme.sub, marginBottom: 4 }}>IMPOSTAZIONI</div>
-
-            {/* tema */}
             <div style={s.card}>
               <div style={s.sectionTitle}>Tema colore</div>
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -632,8 +764,6 @@ export default function App() {
                 ))}
               </div>
             </div>
-
-            {/* categorie personalizzate */}
             <div style={s.card}>
               <div style={s.sectionTitle}>Categorie personalizzate</div>
               {extraCats.length === 0
@@ -657,18 +787,16 @@ export default function App() {
                 <button style={s.greenBtn} onClick={addExtraCat}>+ Aggiungi categoria</button>
               </div>
             </div>
-
-            {/* reset dati */}
             <div style={s.card}>
               <div style={s.sectionTitle}>Dati</div>
-              <div style={{ fontSize: 13, color: theme.sub, marginBottom: 12 }}>Cancella tutti i dati dell'app: spese, entrate, preset e categorie personalizzate. L'operazione è irreversibile.</div>
+              <div style={{ fontSize: 13, color: theme.sub, marginBottom: 12 }}>Cancella tutti i dati: spese, entrate, preset e categorie. Operazione irreversibile.</div>
               {!showResetConfirm
                 ? <button onClick={() => setShowResetConfirm(true)} style={{ width: "100%", background: "transparent", border: "1px solid #ef4444", borderRadius: 8, color: "#ef4444", padding: "11px", fontSize: 14, fontWeight: 600, cursor: "pointer" }}>Cancella tutti i dati</button>
                 : <div style={{ background: theme.bg, borderRadius: 10, padding: 14 }}>
-                  <div style={{ fontSize: 14, color: "#e2e8f0", marginBottom: 12, textAlign: "center" }}>Sei sicuro? Non si può annullare.</div>
+                  <div style={{ fontSize: 14, color: "#e2e8f0", marginBottom: 12, textAlign: "center" }}>Sei sicuro? Non si puo annullare.</div>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                     <button onClick={() => setShowResetConfirm(false)} style={{ background: theme.card, border: `1px solid ${theme.border}`, borderRadius: 8, color: "#e2e8f0", padding: "10px", fontSize: 14, cursor: "pointer" }}>Annulla</button>
-                    <button onClick={resetAll} style={{ background: "#ef4444", border: "none", borderRadius: 8, color: "#fff", padding: "10px", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>Sì, cancella</button>
+                    <button onClick={resetAll} style={{ background: "#ef4444", border: "none", borderRadius: 8, color: "#fff", padding: "10px", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>Si, cancella</button>
                   </div>
                 </div>
               }
@@ -682,7 +810,6 @@ export default function App() {
         <span style={{ fontSize: 10 }}>(tipo grazie al cazzo mica so fare tutto questo da solo)</span>
       </div>
 
-      {/* MODAL PRESET */}
       {showPresetModal && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "flex-end", zIndex: 100 }} onClick={() => setShowPresetModal(false)}>
           <div style={{ background: theme.card, borderRadius: "16px 16px 0 0", padding: 20, width: "100%", maxHeight: "80vh", overflowY: "auto", boxSizing: "border-box" }} onClick={e => e.stopPropagation()}>
@@ -696,7 +823,7 @@ export default function App() {
                   <span style={{ fontSize: 18 }}>{getCatEmoji(p.categoria)}</span>
                   <div>
                     <div style={{ fontWeight: 600 }}>{p.nome}</div>
-                    <div style={{ fontSize: 12, color: "#a78bfa" }}>{fmt(p.importo)} € · {getCatLabel(p.categoria)}</div>
+                    <div style={{ fontSize: 12, color: "#a78bfa" }}>{fmt(p.importo)} · {getCatLabel(p.categoria)}</div>
                   </div>
                 </div>
                 <button onClick={() => setPresets(prev => prev.filter(x => x.id !== p.id))} style={s.delBtn}>🗑</button>
@@ -710,11 +837,7 @@ export default function App() {
               </div>
               <div style={{ fontSize: 12, color: theme.sub, marginBottom: 6 }}>Categoria</div>
               <div style={s.catGrid}>
-                {CATEGORIES.map(c => (
-                  <button key={c.id} style={s.catPill(newPresetCat === c.id)} onClick={() => setNewPresetCat(c.id)}>
-                    <span style={{ fontSize: 14 }}>{c.emoji}</span>{c.label}
-                  </button>
-                ))}
+                {CATEGORIES.map(c => <button key={c.id} style={s.catPill(newPresetCat === c.id)} onClick={() => setNewPresetCat(c.id)}><span style={{ fontSize: 14 }}>{c.emoji}</span>{c.label}</button>)}
               </div>
               <button style={{ ...s.greenBtn, marginTop: 12 }} onClick={addPreset}>Aggiungi preset</button>
             </div>
