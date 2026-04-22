@@ -788,6 +788,43 @@ export default function App() {
               </div>
             </div>
             <div style={s.card}>
+              <div style={s.sectionTitle}>Backup e ripristino</div>
+              <div style={{ fontSize: 13, color: theme.sub, marginBottom: 12 }}>Esporta i tuoi dati in un file JSON da conservare. Importalo per ripristinarli in qualsiasi momento.</div>
+              <button onClick={() => {
+                const data = { spese, entrate, presets, speseFisse, extraCats, themeId };
+                const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                const mese = MONTHS_IT[new Date().getMonth()].toLowerCase();
+                const anno = new Date().getFullYear();
+                a.href = url;
+                a.download = `risparmia-backup-${mese}-${anno}.json`;
+                a.click();
+                URL.revokeObjectURL(url);
+              }} style={{ ...s.greenBtn, marginTop: 0, marginBottom: 10 }}>Esporta backup</button>
+              <div style={{ fontSize: 12, color: theme.sub, marginBottom: 6 }}>Importa da file JSON</div>
+              <input type="file" accept=".json" onChange={e => {
+                const file = e.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = ev => {
+                  try {
+                    const d = JSON.parse(ev.target.result);
+                    if (d.spese) setSpese(d.spese);
+                    if (d.entrate) setEntrate(d.entrate);
+                    if (d.presets) setPresets(d.presets);
+                    if (d.speseFisse) setSpeseFisse(d.speseFisse);
+                    if (d.extraCats) setExtraCats(d.extraCats);
+                    if (d.themeId) setThemeId(d.themeId);
+                    alert("Dati ripristinati con successo!");
+                  } catch { alert("File non valido."); }
+                };
+                reader.readAsText(file);
+                e.target.value = "";
+              }} style={{ ...s.input, padding: "8px" }} />
+            </div>
+
+            <div style={s.card}>
               <div style={s.sectionTitle}>Dati</div>
               <div style={{ fontSize: 13, color: theme.sub, marginBottom: 12 }}>Cancella tutti i dati: spese, entrate, preset e categorie. Operazione irreversibile.</div>
               {!showResetConfirm
