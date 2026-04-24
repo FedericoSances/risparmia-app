@@ -150,13 +150,19 @@ export default function App() {
   const spesePeriodicheDelMese = useMemo(() => {
     return speseFisse.filter(x => x.tipo === "periodica").reduce((acc, sp) => {
       const inizio = sp.giornoInizio || 1, fine = sp.giornoFine || 28, freq = sp.freq || 1;
-      for (let g = inizio; g <= fine; g += freq) acc.push({ ...sp, giornoEffettivo: Math.round(g) });
+      for (let g = inizio; g <= fine; g += freq) {
+        acc.push({ ...sp, giornoEffettivo: Math.round(g) });
+      }
+      // aggiungi l'ultimo giorno se non è già incluso
+      const lastAdded = inizio + Math.floor((fine - inizio) / freq) * freq;
+      if (lastAdded < fine) {
+        acc.push({ ...sp, giornoEffettivo: fine });
+      }
       return acc;
     }, []);
   }, [speseFisse]);
 
-  const totaleSpeseM = speseDelMese.reduce((s, x) => s + x.importo, 0);
-  const totaleSpeseFixedM = speseFisse.filter(x => x.tipo !== "periodica").reduce((s, x) => s + x.importo, 0);
+  const totaleSpeseM = speseDelMese.reduce((s, x) => s + x.importo, 0);  const totaleSpeseFixedM = speseFisse.filter(x => x.tipo !== "periodica").reduce((s, x) => s + x.importo, 0);
   const totaleSpesePeriodicheM = spesePeriodicheDelMese.reduce((s, x) => s + x.importo, 0);
   const totaleSpeseAll = totaleSpeseM + totaleSpeseFixedM + totaleSpesePeriodicheM;
   const totalEntrateM = useMemo(() => (entrate[monthKey] || []).reduce((s, x) => s + x.importo, 0), [entrate, monthKey]);
