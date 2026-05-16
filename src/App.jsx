@@ -73,6 +73,8 @@ export default function App() {
   const [percMode, setPercMode] = useState("mese");
   const [statYear, setStatYear] = useState(today.getFullYear());
   const [statMonth, setStatMonth] = useState(today.getMonth());
+  const [statView, setStatView] = useState("barre"); // "barre" | "torta"
+  const [tortaSelected, setTortaSelected] = useState(null);
   const [storYear, setStorYear] = useState(today.getFullYear());
   const [storMonth, setStorMonth] = useState(today.getMonth() === 0 ? 11 : today.getMonth() - 1);
   const [showTutorial, setShowTutorial] = useState(false);
