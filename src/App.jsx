@@ -49,6 +49,104 @@ function saveData(data) {
   try { localStorage.setItem(STORE_KEY, JSON.stringify(data)); } catch {}
 }
 
+function GraficoBarre({ data, total, getCatColor, getCatEmoji, getCatLabel, accent, bg }) {
+  return data.map(([cat, tot]) => (
+    <div key={cat} style={{ marginBottom: 8 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 3 }}>
+        <span>{getCatEmoji(cat)} {getCatLabel(cat)}</span>
+        <span style={{ color: accent, fontWeight: 600 }}>{fmt(tot)} €</span>
+      </div>
+      <div style={{ background: bg, borderRadius: 4, height: 6 }}>
+        <div style={{ background: getCatColor(cat), height: 6, borderRadius: 4, width: `${Math.min(100, total > 0 ? tot / total * 100 : 0)}%` }} />
+      </div>
+    </div>
+  ));
+}
+
+function GraficoTorta({ data, total, getCatColor, getCatEmoji, getCatLabel, theme }) {
+  const [sel, setSel] = useState(null);
+  const SIZE = 220, CX = 110, CY = 110, R = 85, RI = 42;
+
+  const slices = useMemo(() => {
+    let angle = -Math.PI / 2;
+    return data.map(([cat, tot], i) => {
+      const pct = total > 0 ? tot / total : 0;
+      const start = angle;
+      angle += pct * 2 * Math.PI;
+      const end = angle;
+      const mid = (start + end) / 2;
+      const large = pct > 0.5 ? 1 : 0;
+      const x1 = CX + R * Math.cos(start), y1 = CY + R * Math.sin(start);
+      const x2 = CX + R * Math.cos(end), y2 = CY + R * Math.sin(end);
+      const xi1 = CX + RI * Math.cos(start), yi1 = CY + RI * Math.sin(start);
+      const xi2 = CX + RI * Math.cos(end), yi2 = CY + RI * Math.sin(end);
+      const path = pct > 0.999
+        ? `M ${CX} ${CY - R} A ${R} ${R} 0 1 1 ${CX - 0.01} ${CY - R} L ${CX - 0.01} ${CY - RI} A ${RI} ${RI} 0 1 0 ${CX} ${CY - RI} Z`
+        : `M ${x1} ${y1} A ${R} ${R} 0 ${large} 1 ${x2} ${y2} L ${xi2} ${yi2} A ${RI} ${RI} 0 ${large} 0 ${xi1} ${yi1} Z`;
+      const lx = CX + (R + 18) * Math.cos(mid);
+      const ly = CY + (R + 18) * Math.sin(mid);
+      return { cat, tot, pct, path, mid, lx, ly, i };
+    });
+  }, [data, total]);
+
+  const selSlice = sel !== null ? slices[sel] : null;
+
+  return (
+    <div>
+      <svg viewBox={`0 0 ${SIZE} ${SIZE}`} style={{ width: "100%", maxWidth: 250, display: "block", margin: "0 auto" }}>
+        {slices.map((sl) => {
+          const isActive = sel === sl.i;
+          const scale = isActive ? 1.07 : 1;
+          return (
+            <g key={sl.cat} style={{ cursor: "pointer" }}
+              transform={isActive ? `translate(${CX * (1 - scale)},${CY * (1 - scale)}) scale(${scale})` : ""}
+              onMouseDown={() => setSel(sl.i === sel ? null : sl.i)}
+              onTouchStart={(e) => { e.preventDefault(); setSel(sl.i === sel ? null : sl.i); }}>
+              <path d={sl.path} fill={getCatColor(sl.cat)} opacity={sel !== null && !isActive ? 0.35 : 1} stroke={theme.card} strokeWidth="2.5" />
+            </g>
+          );
+        })}
+        {slices.map((sl) => {
+          if (sl.pct < 0.07) return null;
+          return (
+            <g key={sl.cat + "_l"} style={{ pointerEvents: "none" }}>
+              <text x={sl.lx} y={sl.ly - 7} textAnchor="middle" dominantBaseline="middle" fontSize="9" fontWeight="700" fill="#fff">{Math.round(sl.pct * 100)}%</text>
+              <text x={sl.lx} y={sl.ly + 6} textAnchor="middle" dominantBaseline="middle" fontSize="7.5" fill="rgba(255,255,255,0.85)">{getCatLabel(sl.cat)}</text>
+            </g>
+          );
+        })}
+      </svg>
+
+      {selSlice && (
+        <div style={{ background: theme.bg, borderRadius: 10, padding: "12px 14px", margin: "10px 0" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+            <div style={{ width: 12, height: 12, borderRadius: 3, background: getCatColor(selSlice.cat) }} />
+            <span style={{ fontWeight: 700, fontSize: 15 }}>{getCatEmoji(selSlice.cat)} {getCatLabel(selSlice.cat)}</span>
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 4 }}>
+            <span style={{ color: theme.sub }}>Importo</span>
+            <span style={{ color: theme.accent, fontWeight: 600 }}>{fmt(selSlice.tot)} €</span>
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
+            <span style={{ color: theme.sub }}>Percentuale</span>
+            <span style={{ color: theme.accent, fontWeight: 600 }}>{(selSlice.pct * 100).toFixed(1)}%</span>
+          </div>
+        </div>
+      )}
+
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
+        {slices.map((sl) => (
+          <div key={sl.cat} onClick={() => setSel(sl.i === sel ? null : sl.i)}
+            style={{ display: "flex", alignItems: "center", gap: 5, cursor: "pointer", opacity: sel !== null && sel !== sl.i ? 0.45 : 1 }}>
+            <div style={{ width: 10, height: 10, borderRadius: 2, background: getCatColor(sl.cat) }} />
+            <span style={{ fontSize: 11, color: "#e2e8f0" }}>{getCatLabel(sl.cat)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const today = new Date();
 
@@ -73,13 +171,11 @@ export default function App() {
   const [percMode, setPercMode] = useState("mese");
   const [statYear, setStatYear] = useState(today.getFullYear());
   const [statMonth, setStatMonth] = useState(today.getMonth());
-  const [statView, setStatView] = useState("barre"); // "barre" | "torta"
-  const [tortaSelected, setTortaSelected] = useState(null);
+  const [statView, setStatView] = useState("barre");
   const [storYear, setStorYear] = useState(today.getFullYear());
   const [storMonth, setStorMonth] = useState(today.getMonth() === 0 ? 11 : today.getMonth() - 1);
   const [showTutorial, setShowTutorial] = useState(false);
   const [tutStep, setTutStep] = useState(0);
-
   const [customDesc, setCustomDesc] = useState("");
   const [customAmt, setCustomAmt] = useState("");
   const [customCat, setCustomCat] = useState("altro");
@@ -168,7 +264,6 @@ export default function App() {
   }
 
   const spesePeriodicheDelMese = useMemo(() => buildPeriodiche(speseFisse), [speseFisse]);
-
   const totaleSpeseM = speseDelMese.reduce((s, x) => s + x.importo, 0);
   const totaleSpeseFixedM = speseFisse.filter(x => x.tipo !== "periodica").reduce((s, x) => s + x.importo, 0);
   const totaleSpesePeriodicheM = spesePeriodicheDelMese.reduce((s, x) => s + x.importo, 0);
@@ -177,23 +272,17 @@ export default function App() {
   const risparmioNetto = saldoPortato + totalEntrateM - totaleSpeseAll;
 
   const percSpesa = useMemo(() => {
-    if (percMode === "mese") {
-      return totalEntrateM > 0 ? (totaleSpeseAll / totalEntrateM * 100).toFixed(1) : null;
-    } else {
-      const totEnt = Object.values(entrate).flat().reduce((s, x) => s + x.importo, 0);
-      const totSp = Object.values(spese).reduce((s, mv) => {
-        return s + Object.values(mv).flat().reduce((a, x) => a + x.importo, 0);
-      }, 0) + speseFisse.filter(x => x.tipo !== "periodica").reduce((s, x) => s + x.importo, 0);
-      return totEnt > 0 ? (totSp / totEnt * 100).toFixed(1) : null;
-    }
+    if (percMode === "mese") return totalEntrateM > 0 ? (totaleSpeseAll / totalEntrateM * 100).toFixed(1) : null;
+    const totEnt = Object.values(entrate).flat().reduce((s, x) => s + x.importo, 0);
+    const totSp = Object.values(spese).reduce((s, mv) => s + Object.values(mv).flat().reduce((a, x) => a + x.importo, 0), 0)
+      + speseFisse.filter(x => x.tipo !== "periodica").reduce((s, x) => s + x.importo, 0);
+    return totEnt > 0 ? (totSp / totEnt * 100).toFixed(1) : null;
   }, [percMode, totalEntrateM, totaleSpeseAll, entrate, spese, speseFisse]);
 
   const daysInMonth = new Date(curYear, curMonth + 1, 0).getDate();
   const firstDow = (new Date(curYear, curMonth, 1).getDay() + 6) % 7;
   const speseDel = (d) => (spese[monthKey]?.[d] || []).reduce((s, x) => s + x.importo, 0);
   const todayDay = today.getMonth() === curMonth && today.getFullYear() === curYear ? today.getDate() : daysInMonth;
-  const mediaGiornaliera = daysInMonth > 0 ? totaleSpeseAll / daysInMonth : 0;
-  const proiezioneMese = todayDay > 0 ? (totaleSpeseAll / todayDay) * daysInMonth : 0;
 
   const statSpeseDelMese = useMemo(() => Object.values(spese[statKey] || {}).flat(), [spese, statKey]);
   const statPeriodiche = useMemo(() => buildPeriodiche(speseFisse), [speseFisse]);
@@ -228,8 +317,8 @@ export default function App() {
   }, [spese, storKey]);
   const storSaldoPortato = useMemo(() => calcSaldo(storYear, storMonth, 0), [storYear, storMonth, spese, entrate, speseFisse]);
   const storFisse = speseFisse.filter(x => x.tipo !== "periodica").reduce((s, x) => s + x.importo, 0);
-  const storPeriodiche = buildPeriodiche(speseFisse).reduce((s, x) => s + x.importo, 0);
-  const storTotaleSpese = storSpeseRaw.reduce((s, x) => s + x.importo, 0) + storFisse + storPeriodiche;
+  const storPer = buildPeriodiche(speseFisse).reduce((s, x) => s + x.importo, 0);
+  const storTotaleSpese = storSpeseRaw.reduce((s, x) => s + x.importo, 0) + storFisse + storPer;
   const storEntrate = entrate[storKey] || [];
   const storTotaleEntrate = storEntrate.reduce((s, x) => s + x.importo, 0);
   const storRisparmio = storSaldoPortato + storTotaleEntrate - storTotaleSpese;
@@ -395,120 +484,98 @@ export default function App() {
           <>
             <div style={s.card}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-                <button onClick={() => { let m = curMonth-1, y = curYear; if(m<0){m=11;y--;} setCurMonth(m); setCurYear(y); setSelDay(1); }} style={{ background:"none", border:"none", color:"#e2e8f0", fontSize:20, cursor:"pointer" }}>‹</button>
-                <span style={{ fontWeight:700, fontSize:15 }}>{MONTHS_IT[curMonth]} {curYear}</span>
-                <button onClick={() => { let m = curMonth+1, y = curYear; if(m>11){m=0;y++;} setCurMonth(m); setCurYear(y); setSelDay(1); }} style={{ background:"none", border:"none", color:"#e2e8f0", fontSize:20, cursor:"pointer" }}>›</button>
+                <button onClick={() => { let m=curMonth-1,y=curYear; if(m<0){m=11;y--;} setCurMonth(m);setCurYear(y);setSelDay(1); }} style={{ background:"none",border:"none",color:"#e2e8f0",fontSize:20,cursor:"pointer" }}>‹</button>
+                <span style={{ fontWeight:700,fontSize:15 }}>{MONTHS_IT[curMonth]} {curYear}</span>
+                <button onClick={() => { let m=curMonth+1,y=curYear; if(m>11){m=0;y++;} setCurMonth(m);setCurYear(y);setSelDay(1); }} style={{ background:"none",border:"none",color:"#e2e8f0",fontSize:20,cursor:"pointer" }}>›</button>
               </div>
-              <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", gap:2, textAlign:"center" }}>
-                {DAYS_IT.map(d => <div key={d} style={{ fontSize:10, color:theme.sub, paddingBottom:4 }}>{d}</div>)}
-                {Array.from({ length: firstDow }).map((_, i) => <div key={"e"+i} />)}
-                {Array.from({ length: daysInMonth }).map((_, i) => {
-                  const d = i+1;
-                  const hasSp = speseDel(d) > 0;
-                  const hasEn = (entrate[monthKey]||[]).some(x => new Date(x.data).getDate()===d);
-                  const hasFissa = speseFisse.some(x => x.tipo!=="periodica" && x.giorno===d);
-                  const hasPer = spesePeriodicheDelMese.some(x => x.giornoEffettivo===d);
-                  const isSel = d===selDay;
-                  const isToday = d===today.getDate() && curMonth===today.getMonth() && curYear===today.getFullYear();
-                  const dots = [];
-                  if(hasSp) dots.push(isSel ? theme.bg : theme.accent);
-                  if(hasEn) dots.push(isSel ? theme.bg : "#fbbf24");
-                  if(hasFissa||hasPer) dots.push(isSel ? theme.bg : "#a78bfa");
+              <div style={{ display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2,textAlign:"center" }}>
+                {DAYS_IT.map(d => <div key={d} style={{ fontSize:10,color:theme.sub,paddingBottom:4 }}>{d}</div>)}
+                {Array.from({length:firstDow}).map((_,i) => <div key={"e"+i}/>)}
+                {Array.from({length:daysInMonth}).map((_,i) => {
+                  const d=i+1;
+                  const hasSp=speseDel(d)>0;
+                  const hasEn=(entrate[monthKey]||[]).some(x=>new Date(x.data).getDate()===d);
+                  const hasFissa=speseFisse.some(x=>x.tipo!=="periodica"&&x.giorno===d);
+                  const hasPer=spesePeriodicheDelMese.some(x=>x.giornoEffettivo===d);
+                  const isSel=d===selDay;
+                  const isToday=d===today.getDate()&&curMonth===today.getMonth()&&curYear===today.getFullYear();
+                  const dots=[];
+                  if(hasSp) dots.push(isSel?theme.bg:theme.accent);
+                  if(hasEn) dots.push(isSel?theme.bg:"#fbbf24");
+                  if(hasFissa||hasPer) dots.push(isSel?theme.bg:"#a78bfa");
                   return (
-                    <div key={d} onClick={() => setSelDay(d)} style={{ padding:"6px 2px", borderRadius:8, cursor:"pointer", background: isSel ? theme.accent : isToday ? theme.card : "transparent", color: isSel ? theme.bg : "#e2e8f0", fontSize:13, fontWeight: isSel ? 700 : 400, position:"relative" }}>
+                    <div key={d} onClick={()=>setSelDay(d)} style={{ padding:"6px 2px",borderRadius:8,cursor:"pointer",background:isSel?theme.accent:isToday?theme.card:"transparent",color:isSel?theme.bg:"#e2e8f0",fontSize:13,fontWeight:isSel?700:400,position:"relative" }}>
                       {d}
-                      {dots.length > 0 && (
-                        <div style={{ position:"absolute", bottom:1, left:"50%", transform:"translateX(-50%)", display:"flex", gap:2 }}>
-                          {dots.map((col,idx) => <span key={idx} style={{ width:4, height:4, borderRadius:2, background:col, display:"block" }} />)}
-                        </div>
-                      )}
+                      {dots.length>0&&<div style={{ position:"absolute",bottom:1,left:"50%",transform:"translateX(-50%)",display:"flex",gap:2 }}>{dots.map((col,idx)=><span key={idx} style={{ width:4,height:4,borderRadius:2,background:col,display:"block" }}/>)}</div>}
                     </div>
                   );
                 })}
               </div>
-              <div style={{ display:"flex", gap:12, marginTop:10 }}>
-                <span style={{ fontSize:10, color:theme.accent }}>● Spese</span>
-                <span style={{ fontSize:10, color:"#fbbf24" }}>● Entrate</span>
-                <span style={{ fontSize:10, color:"#a78bfa" }}>● Fisse</span>
+              <div style={{ display:"flex",gap:12,marginTop:10 }}>
+                <span style={{ fontSize:10,color:theme.accent }}>● Spese</span>
+                <span style={{ fontSize:10,color:"#fbbf24" }}>● Entrate</span>
+                <span style={{ fontSize:10,color:"#a78bfa" }}>● Fisse</span>
               </div>
             </div>
 
             <div style={s.card}>
-              <div style={{ fontSize:11, color:theme.sub }}>GIORNO SELEZIONATO</div>
-              <div style={{ fontSize:18, fontWeight:700, marginBottom:10 }}>
+              <div style={{ fontSize:11,color:theme.sub }}>GIORNO SELEZIONATO</div>
+              <div style={{ fontSize:18,fontWeight:700,marginBottom:10 }}>
                 {["Domenica","Lunedi","Martedi","Mercoledi","Giovedi","Venerdi","Sabato"][new Date(curYear,curMonth,selDay).getDay()]} {selDay} {MONTHS_IT[curMonth]}
               </div>
-              <div style={{ background:theme.accent, borderRadius:10, padding:"12px 14px", marginBottom:12 }}>
-                <div style={{ fontSize:11, color:theme.bg, fontWeight:600 }}>TOTALE DEL GIORNO</div>
-                <div style={{ fontSize:24, fontWeight:700, color:theme.bg }}>{fmt(totaleSelDay)} €</div>
+              <div style={{ background:theme.accent,borderRadius:10,padding:"12px 14px",marginBottom:12 }}>
+                <div style={{ fontSize:11,color:theme.bg,fontWeight:600 }}>TOTALE DEL GIORNO</div>
+                <div style={{ fontSize:24,fontWeight:700,color:theme.bg }}>{fmt(totaleSelDay)} €</div>
               </div>
-
-              {presets.length > 0 && (
+              {presets.length>0&&(
                 <>
                   <div style={s.sectionTitle}>Aggiungi rapido</div>
-                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:12 }}>
-                    {presets.map(p => (
-                      <div key={p.id} style={s.presetChip} onClick={() => addSpesa(p.importo, p.nome, p.categoria, "")}>
+                  <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12 }}>
+                    {presets.map(p=>(
+                      <div key={p.id} style={s.presetChip} onClick={()=>addSpesa(p.importo,p.nome,p.categoria,"")}>
                         <span style={{ fontSize:16 }}>{getCatEmoji(p.categoria)}</span>
-                        <div>
-                          <div style={{ fontSize:13, fontWeight:600 }}>{p.nome}</div>
-                          <div style={{ fontSize:11, color:theme.accent }}>{fmt(p.importo)} €</div>
-                        </div>
+                        <div><div style={{ fontSize:13,fontWeight:600 }}>{p.nome}</div><div style={{ fontSize:11,color:theme.accent }}>{fmt(p.importo)} €</div></div>
                       </div>
                     ))}
                   </div>
                 </>
               )}
-
               <div style={s.sectionTitle}>Spesa personalizzata</div>
-              <div style={{ display:"flex", gap:8, marginBottom:8 }}>
-                <input value={customDesc} onChange={e => setCustomDesc(e.target.value)} placeholder="Descrizione" style={{ ...s.input, flex:1 }} />
-                <input value={customAmt} onChange={e => setCustomAmt(e.target.value)} placeholder="€" type="number" style={{ ...s.input, width:70, flex:"none" }} />
-                <button onClick={() => { addSpesa(parseFloat(customAmt), customDesc||"Spesa", customCat, customNote); setCustomDesc(""); setCustomAmt(""); setCustomNote(""); }} style={{ background:theme.accent, border:"none", borderRadius:8, color:theme.bg, width:38, fontSize:20, cursor:"pointer", fontWeight:700 }}>+</button>
+              <div style={{ display:"flex",gap:8,marginBottom:8 }}>
+                <input value={customDesc} onChange={e=>setCustomDesc(e.target.value)} placeholder="Descrizione" style={{ ...s.input,flex:1 }}/>
+                <input value={customAmt} onChange={e=>setCustomAmt(e.target.value)} placeholder="€" type="number" style={{ ...s.input,width:70,flex:"none" }}/>
+                <button onClick={()=>{addSpesa(parseFloat(customAmt),customDesc||"Spesa",customCat,customNote);setCustomDesc("");setCustomAmt("");setCustomNote("");}} style={{ background:theme.accent,border:"none",borderRadius:8,color:theme.bg,width:38,fontSize:20,cursor:"pointer",fontWeight:700 }}>+</button>
               </div>
-              <input value={customNote} onChange={e => setCustomNote(e.target.value)} placeholder="Nota opzionale (es. cena con Marco)" style={{ ...s.input, marginBottom:8, fontSize:12 }} />
-              <div style={s.catGrid}>
-                {CATEGORIES.map(c => (
-                  <button key={c.id} style={s.catPill(customCat===c.id)} onClick={() => setCustomCat(c.id)}>
-                    <span style={{ fontSize:14 }}>{c.emoji}</span>{c.label}
-                  </button>
-                ))}
-              </div>
-
-              {(speseSelDay.length > 0 || speseFisseSelDay.length > 0 || spesePeriodicheSelDay.length > 0) && (
+              <input value={customNote} onChange={e=>setCustomNote(e.target.value)} placeholder="Nota opzionale" style={{ ...s.input,marginBottom:8,fontSize:12 }}/>
+              <div style={s.catGrid}>{CATEGORIES.map(c=><button key={c.id} style={s.catPill(customCat===c.id)} onClick={()=>setCustomCat(c.id)}><span style={{ fontSize:14 }}>{c.emoji}</span>{c.label}</button>)}</div>
+              {(speseSelDay.length>0||speseFisseSelDay.length>0||spesePeriodicheSelDay.length>0)&&(
                 <div style={{ marginTop:14 }}>
-                  <div style={{ fontSize:13, color:theme.sub, marginBottom:6 }}>Spese registrate ({speseSelDay.length + speseFisseSelDay.length + spesePeriodicheSelDay.length})</div>
-                  {speseSelDay.map(x => (
-                    <div key={x.id} style={{ ...s.row, flexDirection:"column", alignItems:"flex-start", gap:4 }}>
-                      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", width:"100%" }}>
-                        <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                  <div style={{ fontSize:13,color:theme.sub,marginBottom:6 }}>Spese registrate ({speseSelDay.length+speseFisseSelDay.length+spesePeriodicheSelDay.length})</div>
+                  {speseSelDay.map(x=>(
+                    <div key={x.id} style={{ ...s.row,flexDirection:"column",alignItems:"flex-start",gap:4 }}>
+                      <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",width:"100%" }}>
+                        <div style={{ display:"flex",alignItems:"center",gap:8 }}>
                           <span>{getCatEmoji(x.cat)}</span>
-                          <div><div style={{ fontSize:14 }}>{x.desc}</div><div style={{ fontSize:11, color:theme.sub }}>{getCatLabel(x.cat)}</div></div>
+                          <div><div style={{ fontSize:14 }}>{x.desc}</div><div style={{ fontSize:11,color:theme.sub }}>{getCatLabel(x.cat)}</div></div>
                         </div>
-                        <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-                          <span style={{ fontSize:15, fontWeight:600, color:theme.accent }}>{fmt(x.importo)} €</span>
-                          <button onClick={() => removeSpesa(selDay, x.id)} style={s.delBtn}>🗑</button>
+                        <div style={{ display:"flex",alignItems:"center",gap:10 }}>
+                          <span style={{ fontSize:15,fontWeight:600,color:theme.accent }}>{fmt(x.importo)} €</span>
+                          <button onClick={()=>removeSpesa(selDay,x.id)} style={s.delBtn}>🗑</button>
                         </div>
                       </div>
-                      {x.note && <div style={{ fontSize:11, color:theme.sub, paddingLeft:26, fontStyle:"italic" }}>"{x.note}"</div>}
+                      {x.note&&<div style={{ fontSize:11,color:theme.sub,paddingLeft:26,fontStyle:"italic" }}>"{x.note}"</div>}
                     </div>
                   ))}
-                  {speseFisseSelDay.map(x => (
+                  {speseFisseSelDay.map(x=>(
                     <div key={x.id} style={s.row}>
-                      <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-                        <span>{getCatEmoji(x.cat)}</span>
-                        <div><div style={{ fontSize:14 }}>{x.desc}</div><div style={{ fontSize:11, color:"#a78bfa" }}>Fissa</div></div>
-                      </div>
-                      <span style={{ fontWeight:600, color:"#a78bfa" }}>{fmt(x.importo)} €</span>
+                      <div style={{ display:"flex",alignItems:"center",gap:8 }}><span>{getCatEmoji(x.cat)}</span><div><div style={{ fontSize:14 }}>{x.desc}</div><div style={{ fontSize:11,color:"#a78bfa" }}>Fissa</div></div></div>
+                      <span style={{ fontWeight:600,color:"#a78bfa" }}>{fmt(x.importo)} €</span>
                     </div>
                   ))}
-                  {spesePeriodicheSelDay.map((x,i) => (
+                  {spesePeriodicheSelDay.map((x,i)=>(
                     <div key={x.id+"_"+i} style={s.row}>
-                      <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-                        <span>{getCatEmoji(x.cat)}</span>
-                        <div><div style={{ fontSize:14 }}>{x.desc}</div><div style={{ fontSize:11, color:"#60a5fa" }}>Periodica</div></div>
-                      </div>
-                      <span style={{ fontWeight:600, color:"#60a5fa" }}>{fmt(x.importo)} €</span>
+                      <div style={{ display:"flex",alignItems:"center",gap:8 }}><span>{getCatEmoji(x.cat)}</span><div><div style={{ fontSize:14 }}>{x.desc}</div><div style={{ fontSize:11,color:"#60a5fa" }}>Periodica</div></div></div>
+                      <span style={{ fontWeight:600,color:"#60a5fa" }}>{fmt(x.importo)} €</span>
                     </div>
                   ))}
                 </div>
@@ -516,69 +583,49 @@ export default function App() {
             </div>
 
             <div style={s.card}>
-              <div style={{ display:"flex", background:theme.bg, borderRadius:10, padding:3, gap:3, marginBottom:14 }}>
-                <button style={s.seg(tipoSpesaFissa==="mensile")} onClick={() => setTipoSpesaFissa("mensile")}>📌 Mensile fissa</button>
-                <button style={s.seg(tipoSpesaFissa==="periodica")} onClick={() => setTipoSpesaFissa("periodica")}>🔁 Periodica</button>
+              <div style={{ display:"flex",background:theme.bg,borderRadius:10,padding:3,gap:3,marginBottom:14 }}>
+                <button style={s.seg(tipoSpesaFissa==="mensile")} onClick={()=>setTipoSpesaFissa("mensile")}>📌 Mensile fissa</button>
+                <button style={s.seg(tipoSpesaFissa==="periodica")} onClick={()=>setTipoSpesaFissa("periodica")}>🔁 Periodica</button>
               </div>
-
-              {tipoSpesaFissa === "mensile" && (
+              {tipoSpesaFissa==="mensile"&&(
                 <>
                   <div style={s.sectionTitle}>Spese mensili fisse</div>
-                  {speseFisse.filter(x => x.tipo!=="periodica").length === 0
-                    ? <div style={{ color:theme.sub, fontSize:13, fontStyle:"italic", marginBottom:12 }}>Nessuna spesa fissa</div>
-                    : speseFisse.filter(x => x.tipo!=="periodica").map(x => (
-                      <div key={x.id} style={s.row}>
-                        <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-                          <span>{getCatEmoji(x.cat)}</span>
-                          <div><div style={{ fontSize:13, fontWeight:600 }}>{x.desc}</div><div style={{ fontSize:11, color:theme.sub }}>{getCatLabel(x.cat)}{x.giorno ? " · giorno "+x.giorno : ""}</div></div>
-                        </div>
-                        <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-                          <span style={{ fontWeight:600, color:"#a78bfa" }}>{fmt(x.importo)} €</span>
-                          <button onClick={() => setSpeseFisse(prev => prev.filter(sf => sf.id!==x.id))} style={s.delBtn}>🗑</button>
-                        </div>
-                      </div>
-                    ))
-                  }
-                  <div style={{ marginTop:14 }}>
-                    <input value={sfDesc} onChange={e => setSfDesc(e.target.value)} placeholder="Es. Affitto, Netflix..." style={{ ...s.input, marginBottom:8 }} />
-                    <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:8 }}>
-                      <div><div style={s.label}>Importo €</div><input value={sfAmt} onChange={e => setSfAmt(e.target.value)} placeholder="0,00" type="number" style={s.input} /></div>
-                      <div><div style={s.label}>Giorno (opz.)</div><input value={sfGiorno} onChange={e => setSfGiorno(e.target.value)} placeholder="Es. 4, 20..." type="number" min="1" max="31" style={s.input} /></div>
+                  {speseFisse.filter(x=>x.tipo!=="periodica").length===0?<div style={{ color:theme.sub,fontSize:13,fontStyle:"italic",marginBottom:12 }}>Nessuna spesa fissa</div>:speseFisse.filter(x=>x.tipo!=="periodica").map(x=>(
+                    <div key={x.id} style={s.row}>
+                      <div style={{ display:"flex",alignItems:"center",gap:8 }}><span>{getCatEmoji(x.cat)}</span><div><div style={{ fontSize:13,fontWeight:600 }}>{x.desc}</div><div style={{ fontSize:11,color:theme.sub }}>{getCatLabel(x.cat)}{x.giorno?" · giorno "+x.giorno:""}</div></div></div>
+                      <div style={{ display:"flex",alignItems:"center",gap:10 }}><span style={{ fontWeight:600,color:"#a78bfa" }}>{fmt(x.importo)} €</span><button onClick={()=>setSpeseFisse(prev=>prev.filter(sf=>sf.id!==x.id))} style={s.delBtn}>🗑</button></div>
                     </div>
-                    <div style={s.catGrid}>{CATEGORIES.map(c => <button key={c.id} style={s.catPill(sfCat===c.id)} onClick={() => setSfCat(c.id)}><span>{c.emoji}</span>{c.label}</button>)}</div>
-                    <button style={{ ...s.greenBtn, marginTop:10 }} onClick={addSpesaFissa}>+ Aggiungi</button>
+                  ))}
+                  <div style={{ marginTop:14 }}>
+                    <input value={sfDesc} onChange={e=>setSfDesc(e.target.value)} placeholder="Es. Affitto, Netflix..." style={{ ...s.input,marginBottom:8 }}/>
+                    <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8 }}>
+                      <div><div style={s.label}>Importo €</div><input value={sfAmt} onChange={e=>setSfAmt(e.target.value)} placeholder="0,00" type="number" style={s.input}/></div>
+                      <div><div style={s.label}>Giorno (opz.)</div><input value={sfGiorno} onChange={e=>setSfGiorno(e.target.value)} placeholder="Es. 4, 20..." type="number" min="1" max="31" style={s.input}/></div>
+                    </div>
+                    <div style={s.catGrid}>{CATEGORIES.map(c=><button key={c.id} style={s.catPill(sfCat===c.id)} onClick={()=>setSfCat(c.id)}><span>{c.emoji}</span>{c.label}</button>)}</div>
+                    <button style={{ ...s.greenBtn,marginTop:10 }} onClick={addSpesaFissa}>+ Aggiungi</button>
                   </div>
                 </>
               )}
-
-              {tipoSpesaFissa === "periodica" && (
+              {tipoSpesaFissa==="periodica"&&(
                 <>
                   <div style={s.sectionTitle}>Spese periodiche</div>
-                  {speseFisse.filter(x => x.tipo==="periodica").length === 0
-                    ? <div style={{ color:theme.sub, fontSize:13, fontStyle:"italic", marginBottom:12 }}>Nessuna spesa periodica</div>
-                    : speseFisse.filter(x => x.tipo==="periodica").map(x => (
-                      <div key={x.id} style={s.row}>
-                        <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-                          <span>{getCatEmoji(x.cat)}</span>
-                          <div><div style={{ fontSize:13, fontWeight:600 }}>{x.desc}</div><div style={{ fontSize:11, color:theme.sub }}>ogni {x.freq}gg · giorni {x.giornoInizio}-{x.giornoFine}</div></div>
-                        </div>
-                        <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-                          <span style={{ fontWeight:600, color:"#60a5fa" }}>{fmt(x.importo)} €</span>
-                          <button onClick={() => setSpeseFisse(prev => prev.filter(sf => sf.id!==x.id))} style={s.delBtn}>🗑</button>
-                        </div>
-                      </div>
-                    ))
-                  }
-                  <div style={{ marginTop:14 }}>
-                    <input value={spDesc} onChange={e => setSpDesc(e.target.value)} placeholder="Es. Pastiglie cane..." style={{ ...s.input, marginBottom:8 }} />
-                    <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8, marginBottom:8 }}>
-                      <div><div style={s.label}>Importo €</div><input value={spAmt} onChange={e => setSpAmt(e.target.value)} placeholder="0,00" type="number" style={s.input} /></div>
-                      <div><div style={s.label}>Giorno inizio</div><input value={spGiornoInizio} onChange={e => setSpGiornoInizio(e.target.value)} placeholder="Es. 15" type="number" min="1" max="31" style={s.input} /></div>
-                      <div><div style={s.label}>Giorno fine</div><input value={spGiornoFine} onChange={e => setSpGiornoFine(e.target.value)} placeholder="Es. 21" type="number" min="1" max="31" style={s.input} /></div>
+                  {speseFisse.filter(x=>x.tipo==="periodica").length===0?<div style={{ color:theme.sub,fontSize:13,fontStyle:"italic",marginBottom:12 }}>Nessuna spesa periodica</div>:speseFisse.filter(x=>x.tipo==="periodica").map(x=>(
+                    <div key={x.id} style={s.row}>
+                      <div style={{ display:"flex",alignItems:"center",gap:8 }}><span>{getCatEmoji(x.cat)}</span><div><div style={{ fontSize:13,fontWeight:600 }}>{x.desc}</div><div style={{ fontSize:11,color:theme.sub }}>ogni {x.freq}gg · giorni {x.giornoInizio}-{x.giornoFine}</div></div></div>
+                      <div style={{ display:"flex",alignItems:"center",gap:10 }}><span style={{ fontWeight:600,color:"#60a5fa" }}>{fmt(x.importo)} €</span><button onClick={()=>setSpeseFisse(prev=>prev.filter(sf=>sf.id!==x.id))} style={s.delBtn}>🗑</button></div>
                     </div>
-                    <div style={{ marginBottom:8 }}><div style={s.label}>Ogni quanti giorni</div><input value={spFreq} onChange={e => setSpFreq(e.target.value)} placeholder="1=ogni giorno, 2=a giorni alterni" type="number" min="1" max="31" style={s.input} /></div>
-                    <div style={s.catGrid}>{CATEGORIES.map(c => <button key={c.id} style={s.catPill(spCat===c.id)} onClick={() => setSpCat(c.id)}><span>{c.emoji}</span>{c.label}</button>)}</div>
-                    <button style={{ ...s.greenBtn, marginTop:10 }} onClick={addSpesaPeriodica}>+ Aggiungi</button>
+                  ))}
+                  <div style={{ marginTop:14 }}>
+                    <input value={spDesc} onChange={e=>setSpDesc(e.target.value)} placeholder="Es. Pastiglie cane..." style={{ ...s.input,marginBottom:8 }}/>
+                    <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:8 }}>
+                      <div><div style={s.label}>Importo €</div><input value={spAmt} onChange={e=>setSpAmt(e.target.value)} placeholder="0,00" type="number" style={s.input}/></div>
+                      <div><div style={s.label}>Giorno inizio</div><input value={spGiornoInizio} onChange={e=>setSpGiornoInizio(e.target.value)} placeholder="Es. 15" type="number" min="1" max="31" style={s.input}/></div>
+                      <div><div style={s.label}>Giorno fine</div><input value={spGiornoFine} onChange={e=>setSpGiornoFine(e.target.value)} placeholder="Es. 21" type="number" min="1" max="31" style={s.input}/></div>
+                    </div>
+                    <div style={{ marginBottom:8 }}><div style={s.label}>Ogni quanti giorni</div><input value={spFreq} onChange={e=>setSpFreq(e.target.value)} placeholder="1=ogni giorno" type="number" min="1" max="31" style={s.input}/></div>
+                    <div style={s.catGrid}>{CATEGORIES.map(c=><button key={c.id} style={s.catPill(spCat===c.id)} onClick={()=>setSpCat(c.id)}><span>{c.emoji}</span>{c.label}</button>)}</div>
+                    <button style={{ ...s.greenBtn,marginTop:10 }} onClick={addSpesaPeriodica}>+ Aggiungi</button>
                   </div>
                 </>
               )}
@@ -588,48 +635,47 @@ export default function App() {
 
         {tab === "statistiche" && (
           <>
-            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
-              <button onClick={() => { let m=statMonth-1,y=statYear; if(m<0){m=11;y--;} setStatMonth(m); setStatYear(y); }} style={{ background:"none", border:"none", color:"#e2e8f0", fontSize:22, cursor:"pointer" }}>‹</button>
+            <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12 }}>
+              <button onClick={()=>{let m=statMonth-1,y=statYear;if(m<0){m=11;y--;}setStatMonth(m);setStatYear(y);}} style={{ background:"none",border:"none",color:"#e2e8f0",fontSize:22,cursor:"pointer" }}>‹</button>
               <div style={{ textAlign:"center" }}>
-                <div style={{ fontSize:11, color:theme.sub }}>STATISTICHE</div>
-                <div style={{ fontSize:20, fontWeight:700 }}>{MONTHS_IT[statMonth]} {statYear}</div>
+                <div style={{ fontSize:11,color:theme.sub }}>STATISTICHE</div>
+                <div style={{ fontSize:20,fontWeight:700 }}>{MONTHS_IT[statMonth]} {statYear}</div>
               </div>
-              <button onClick={() => { let m=statMonth+1,y=statYear; if(m>11){m=0;y++;} setStatMonth(m); setStatYear(y); }} style={{ background:"none", border:"none", color:"#e2e8f0", fontSize:22, cursor:"pointer" }}>›</button>
+              <button onClick={()=>{let m=statMonth+1,y=statYear;if(m>11){m=0;y++;}setStatMonth(m);setStatYear(y);}} style={{ background:"none",border:"none",color:"#e2e8f0",fontSize:22,cursor:"pointer" }}>›</button>
             </div>
-            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:12 }}>
+            <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12 }}>
               <div style={s.kpi}><p style={s.kpiLabel}>Media giornaliera</p><p style={s.kpiVal("#fbbf24")}>{fmt(statMedia)} €</p></div>
               <div style={s.kpi}><p style={s.kpiLabel}>Proiezione mese</p><p style={s.kpiVal(theme.accent)}>{fmt(statProiezione)} €</p></div>
               <div style={s.kpi}><p style={s.kpiLabel}>Totale entrate</p><p style={s.kpiVal("#fbbf24")}>{fmt(statTotaleEntrate)} €</p></div>
               <div style={s.kpi}><p style={s.kpiLabel}>Totale spese</p><p style={s.kpiVal(theme.accent)}>{fmt(statTotaleSpese)} €</p></div>
             </div>
+
             <div style={s.card}>
-              <div style={s.sectionTitle}>Spese per categoria</div>
-              {statSpesePCat.length === 0
-                ? <div style={{ color:theme.sub, fontSize:13, fontStyle:"italic" }}>Nessuna spesa questo mese</div>
-                : statSpesePCat.map(([cat, tot]) => (
-                  <div key={cat} style={{ marginBottom:8 }}>
-                    <div style={{ display:"flex", justifyContent:"space-between", fontSize:13, marginBottom:3 }}>
-                      <span>{getCatEmoji(cat)} {getCatLabel(cat)}</span>
-                      <span style={{ color:theme.accent, fontWeight:600 }}>{fmt(tot)} €</span>
-                    </div>
-                    <div style={{ background:theme.bg, borderRadius:4, height:6 }}>
-                      <div style={{ background:getCatColor(cat), height:6, borderRadius:4, width:`${Math.min(100, statTotaleSpese>0 ? tot/statTotaleSpese*100 : 0)}%` }} />
-                    </div>
-                  </div>
-                ))
-              }
+              <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12 }}>
+                <span style={s.sectionTitle}>Spese per categoria</span>
+                <button
+                  onClick={() => setStatView(v => v === "barre" ? "torta" : "barre")}
+                  style={{ background: theme.bg, border: `1px solid ${theme.border}`, borderRadius: 8, color: theme.accent, padding: "5px 10px", fontSize: 12, cursor: "pointer", fontWeight: 600 }}>
+                  {statView === "barre" ? "🥧 Torta" : "📊 Barre"}
+                </button>
+              </div>
+              {statSpesePCat.length === 0 ? (
+                <div style={{ color:theme.sub,fontSize:13,fontStyle:"italic" }}>Nessuna spesa questo mese</div>
+              ) : statView === "barre" ? (
+                <GraficoBarre data={statSpesePCat} total={statTotaleSpese} getCatColor={getCatColor} getCatEmoji={getCatEmoji} getCatLabel={getCatLabel} accent={theme.accent} bg={theme.bg} />
+              ) : (
+                <GraficoTorta data={statSpesePCat} total={statTotaleSpese} getCatColor={getCatColor} getCatEmoji={getCatEmoji} getCatLabel={getCatLabel} theme={theme} />
+              )}
             </div>
+
             <div style={s.card}>
               <div style={s.sectionTitle}>Top 5 voci del mese</div>
-              {statTop5.length === 0
-                ? <div style={{ color:theme.sub, fontSize:13, fontStyle:"italic" }}>Nessun dato</div>
-                : statTop5.map(([desc, tot], i) => (
-                  <div key={desc} style={{ display:"flex", justifyContent:"space-between", padding:"6px 0", borderBottom: i<statTop5.length-1 ? `1px solid ${theme.bg}` : "none", fontSize:13 }}>
-                    <span style={{ color:"#94a3b8" }}>#{i+1} {desc}</span>
-                    <span style={{ color:"#fbbf24", fontWeight:600 }}>{fmt(tot)} €</span>
-                  </div>
-                ))
-              }
+              {statTop5.length===0?<div style={{ color:theme.sub,fontSize:13,fontStyle:"italic" }}>Nessun dato</div>:statTop5.map(([desc,tot],i)=>(
+                <div key={desc} style={{ display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:i<statTop5.length-1?`1px solid ${theme.bg}`:"none",fontSize:13 }}>
+                  <span style={{ color:"#94a3b8" }}>#{i+1} {desc}</span>
+                  <span style={{ color:"#fbbf24",fontWeight:600 }}>{fmt(tot)} €</span>
+                </div>
+              ))}
             </div>
           </>
         )}
@@ -637,269 +683,205 @@ export default function App() {
         {tab === "entrate" && (
           <>
             <div style={s.card}>
-              <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:10 }}>
-                <div style={{ ...s.logoBox, width:32, height:32, borderRadius:8, fontSize:15 }}>💼</div>
-                <div>
-                  <div style={{ fontWeight:700, fontSize:15 }}>Entrate · {MONTHS_IT[curMonth]} {curYear}</div>
-                  <div style={{ fontSize:11, color:theme.sub }}>Stipendi, bonus, regali</div>
-                </div>
+              <div style={{ display:"flex",alignItems:"center",gap:10,marginBottom:10 }}>
+                <div style={{ ...s.logoBox,width:32,height:32,borderRadius:8,fontSize:15 }}>💼</div>
+                <div><div style={{ fontWeight:700,fontSize:15 }}>Entrate · {MONTHS_IT[curMonth]} {curYear}</div><div style={{ fontSize:11,color:theme.sub }}>Stipendi, bonus, regali</div></div>
               </div>
-              <div style={{ fontSize:11, color:theme.sub }}>TOTALE ENTRATE DEL MESE</div>
-              <div style={{ fontSize:24, fontWeight:700, color:theme.accent, marginBottom:14 }}>{fmt(totalEntrateM)} €</div>
+              <div style={{ fontSize:11,color:theme.sub }}>TOTALE ENTRATE DEL MESE</div>
+              <div style={{ fontSize:24,fontWeight:700,color:theme.accent,marginBottom:14 }}>{fmt(totalEntrateM)} €</div>
               <div style={s.sectionTitle}>Aggiungi entrata</div>
               <div style={s.label}>Descrizione</div>
-              <input value={entrataDesc} onChange={e => setEntrataDesc(e.target.value)} style={{ ...s.input, marginBottom:8 }} />
-              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:4 }}>
-                <div><div style={s.label}>Importo €</div><input value={entrataAmt} onChange={e => setEntrataAmt(e.target.value)} placeholder="0,00" type="number" style={s.input} /></div>
-                <div><div style={s.label}>Data</div><input value={entrataData} onChange={e => setEntrataData(e.target.value)} type="date" style={s.input} /></div>
+              <input value={entrataDesc} onChange={e=>setEntrataDesc(e.target.value)} style={{ ...s.input,marginBottom:8 }}/>
+              <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:4 }}>
+                <div><div style={s.label}>Importo €</div><input value={entrataAmt} onChange={e=>setEntrataAmt(e.target.value)} placeholder="0,00" type="number" style={s.input}/></div>
+                <div><div style={s.label}>Data</div><input value={entrataData} onChange={e=>setEntrataData(e.target.value)} type="date" style={s.input}/></div>
               </div>
               <button style={s.greenBtn} onClick={addEntrata}>+ Registra entrata</button>
             </div>
-            <div style={{ fontSize:13, color:theme.sub, marginBottom:8 }}>Entrate del mese ({(entrate[monthKey]||[]).length})</div>
-            {(entrate[monthKey]||[]).length === 0
-              ? <div style={{ color:theme.sub, fontSize:13, fontStyle:"italic", textAlign:"center", padding:20 }}>Nessuna entrata registrata</div>
-              : (entrate[monthKey]||[]).map(x => (
-                <div key={x.id} style={{ ...s.card, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                  <div><div style={{ fontWeight:600 }}>{x.desc}</div><div style={{ fontSize:11, color:theme.sub }}>{x.data}</div></div>
-                  <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-                    <span style={{ color:theme.accent, fontWeight:700 }}>{fmt(x.importo)} €</span>
-                    <button onClick={() => removeEntrata(x.id, monthKey)} style={s.delBtn}>🗑</button>
-                  </div>
-                </div>
-              ))
-            }
+            <div style={{ fontSize:13,color:theme.sub,marginBottom:8 }}>Entrate del mese ({(entrate[monthKey]||[]).length})</div>
+            {(entrate[monthKey]||[]).length===0?<div style={{ color:theme.sub,fontSize:13,fontStyle:"italic",textAlign:"center",padding:20 }}>Nessuna entrata registrata</div>:(entrate[monthKey]||[]).map(x=>(
+              <div key={x.id} style={{ ...s.card,display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+                <div><div style={{ fontWeight:600 }}>{x.desc}</div><div style={{ fontSize:11,color:theme.sub }}>{x.data}</div></div>
+                <div style={{ display:"flex",alignItems:"center",gap:10 }}><span style={{ color:theme.accent,fontWeight:700 }}>{fmt(x.importo)} €</span><button onClick={()=>removeEntrata(x.id,monthKey)} style={s.delBtn}>🗑</button></div>
+              </div>
+            ))}
           </>
         )}
 
         {tab === "storico" && (
           <>
-            <div style={{ fontSize:11, color:theme.sub, marginBottom:4 }}>STORICO MENSILE</div>
-            <div style={{ ...s.card, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-              <button onClick={() => { let m=storMonth-1,y=storYear; if(m<0){m=11;y--;} setStorMonth(m); setStorYear(y); }} style={{ background:"none", border:"none", color:"#e2e8f0", fontSize:20, cursor:"pointer" }}>‹</button>
-              <span style={{ fontWeight:700, fontSize:16 }}>{MONTHS_IT[storMonth]} {storYear}</span>
-              <button onClick={() => { let m=storMonth+1,y=storYear; if(m>11){m=0;y++;} setStorMonth(m); setStorYear(y); }} style={{ background:"none", border:"none", color:"#e2e8f0", fontSize:20, cursor:"pointer" }}>›</button>
+            <div style={{ fontSize:11,color:theme.sub,marginBottom:4 }}>STORICO MENSILE</div>
+            <div style={{ ...s.card,display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+              <button onClick={()=>{let m=storMonth-1,y=storYear;if(m<0){m=11;y--;}setStorMonth(m);setStorYear(y);}} style={{ background:"none",border:"none",color:"#e2e8f0",fontSize:20,cursor:"pointer" }}>‹</button>
+              <span style={{ fontWeight:700,fontSize:16 }}>{MONTHS_IT[storMonth]} {storYear}</span>
+              <button onClick={()=>{let m=storMonth+1,y=storYear;if(m>11){m=0;y++;}setStorMonth(m);setStorYear(y);}} style={{ background:"none",border:"none",color:"#e2e8f0",fontSize:20,cursor:"pointer" }}>›</button>
             </div>
-            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:12 }}>
-              {storSaldoPortato !== 0 && <div style={{ ...s.kpi, gridColumn:"1 / -1" }}><p style={s.kpiLabel}>Saldo da mese precedente</p><p style={s.kpiVal(storSaldoPortato>=0 ? theme.accent : "#f87171")}>{fmt(storSaldoPortato)} €</p></div>}
+            <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12 }}>
+              {storSaldoPortato!==0&&<div style={{ ...s.kpi,gridColumn:"1 / -1" }}><p style={s.kpiLabel}>Saldo da mese precedente</p><p style={s.kpiVal(storSaldoPortato>=0?theme.accent:"#f87171")}>{fmt(storSaldoPortato)} €</p></div>}
               <div style={s.kpi}><p style={s.kpiLabel}>Entrate</p><p style={s.kpiVal("#fbbf24")}>{fmt(storTotaleEntrate)} €</p></div>
               <div style={s.kpi}><p style={s.kpiLabel}>Spese totali</p><p style={s.kpiVal(theme.accent)}>{fmt(storTotaleSpese)} €</p></div>
-              <div style={s.kpi}><p style={s.kpiLabel}>Risparmio netto</p><p style={s.kpiVal(storRisparmio>=0 ? theme.accent : "#f87171")}>{fmt(storRisparmio)} €</p></div>
-              <div style={s.kpi}><p style={s.kpiLabel}>% Spesa / Entrate</p><p style={s.kpiVal(theme.accent)}>{storPercSpesa !== null ? storPercSpesa+"%" : "---"}</p></div>
+              <div style={s.kpi}><p style={s.kpiLabel}>Risparmio netto</p><p style={s.kpiVal(storRisparmio>=0?theme.accent:"#f87171")}>{fmt(storRisparmio)} €</p></div>
+              <div style={s.kpi}><p style={s.kpiLabel}>% Spesa / Entrate</p><p style={s.kpiVal(theme.accent)}>{storPercSpesa!==null?storPercSpesa+"%":"---"}</p></div>
             </div>
             <div style={s.card}>
               <div style={s.sectionTitle}>Entrate ({storEntrate.length})</div>
-              {storEntrate.length === 0
-                ? <div style={{ color:theme.sub, fontSize:13, fontStyle:"italic" }}>Nessuna entrata</div>
-                : storEntrate.map(x => (
-                  <div key={x.id} style={s.row}>
-                    <div><div style={{ fontSize:13, fontWeight:600 }}>{x.desc}</div><div style={{ fontSize:11, color:theme.sub }}>{x.data}</div></div>
-                    <span style={{ color:"#fbbf24", fontWeight:700 }}>{fmt(x.importo)} €</span>
-                  </div>
-                ))
-              }
+              {storEntrate.length===0?<div style={{ color:theme.sub,fontSize:13,fontStyle:"italic" }}>Nessuna entrata</div>:storEntrate.map(x=>(
+                <div key={x.id} style={s.row}><div><div style={{ fontSize:13,fontWeight:600 }}>{x.desc}</div><div style={{ fontSize:11,color:theme.sub }}>{x.data}</div></div><span style={{ color:"#fbbf24",fontWeight:700 }}>{fmt(x.importo)} €</span></div>
+              ))}
             </div>
             <div style={s.card}>
               <div style={s.sectionTitle}>Spese per categoria</div>
-              {storCat.length === 0
-                ? <div style={{ color:theme.sub, fontSize:13, fontStyle:"italic" }}>Nessuna spesa</div>
-                : storCat.map(([cat, tot]) => (
-                  <div key={cat} style={{ marginBottom:8 }}>
-                    <div style={{ display:"flex", justifyContent:"space-between", fontSize:13, marginBottom:3 }}>
-                      <span>{getCatEmoji(cat)} {getCatLabel(cat)}</span>
-                      <span style={{ color:theme.accent, fontWeight:600 }}>{fmt(tot)} €</span>
-                    </div>
-                    <div style={{ background:theme.bg, borderRadius:4, height:6 }}>
-                      <div style={{ background:getCatColor(cat), height:6, borderRadius:4, width:`${Math.min(100, storTotaleSpese>0 ? tot/storTotaleSpese*100 : 0)}%` }} />
-                    </div>
-                  </div>
-                ))
-              }
+              {storCat.length===0?<div style={{ color:theme.sub,fontSize:13,fontStyle:"italic" }}>Nessuna spesa</div>:storCat.map(([cat,tot])=>(
+                <div key={cat} style={{ marginBottom:8 }}>
+                  <div style={{ display:"flex",justifyContent:"space-between",fontSize:13,marginBottom:3 }}><span>{getCatEmoji(cat)} {getCatLabel(cat)}</span><span style={{ color:theme.accent,fontWeight:600 }}>{fmt(tot)} €</span></div>
+                  <div style={{ background:theme.bg,borderRadius:4,height:6 }}><div style={{ background:getCatColor(cat),height:6,borderRadius:4,width:`${Math.min(100,storTotaleSpese>0?tot/storTotaleSpese*100:0)}%` }}/></div>
+                </div>
+              ))}
             </div>
             <div style={s.card}>
               <div style={s.sectionTitle}>Tutte le spese ({storSpeseRaw.length})</div>
-              {storSpeseRaw.length === 0
-                ? <div style={{ color:theme.sub, fontSize:13, fontStyle:"italic" }}>Nessuna spesa</div>
-                : storSpeseRaw.sort((a,b) => a.giorno-b.giorno).map(x => (
-                  <div key={x.id} style={{ ...s.row, flexDirection:"column", alignItems:"flex-start", gap:2 }}>
-                    <div style={{ display:"flex", justifyContent:"space-between", width:"100%", alignItems:"center" }}>
-                      <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-                        <span>{getCatEmoji(x.cat)}</span>
-                        <div><div style={{ fontSize:13 }}>{x.desc}</div><div style={{ fontSize:10, color:theme.sub }}>{getCatLabel(x.cat)} · giorno {x.giorno}</div></div>
-                      </div>
-                      <span style={{ color:theme.accent, fontWeight:600, fontSize:13 }}>{fmt(x.importo)} €</span>
-                    </div>
-                    {x.note && <div style={{ fontSize:11, color:theme.sub, paddingLeft:26, fontStyle:"italic" }}>"{x.note}"</div>}
+              {storSpeseRaw.length===0?<div style={{ color:theme.sub,fontSize:13,fontStyle:"italic" }}>Nessuna spesa</div>:storSpeseRaw.sort((a,b)=>a.giorno-b.giorno).map(x=>(
+                <div key={x.id} style={{ ...s.row,flexDirection:"column",alignItems:"flex-start",gap:2 }}>
+                  <div style={{ display:"flex",justifyContent:"space-between",width:"100%",alignItems:"center" }}>
+                    <div style={{ display:"flex",alignItems:"center",gap:8 }}><span>{getCatEmoji(x.cat)}</span><div><div style={{ fontSize:13 }}>{x.desc}</div><div style={{ fontSize:10,color:theme.sub }}>{getCatLabel(x.cat)} · giorno {x.giorno}</div></div></div>
+                    <span style={{ color:theme.accent,fontWeight:600,fontSize:13 }}>{fmt(x.importo)} €</span>
                   </div>
-                ))
-              }
+                  {x.note&&<div style={{ fontSize:11,color:theme.sub,paddingLeft:26,fontStyle:"italic" }}>"{x.note}"</div>}
+                </div>
+              ))}
             </div>
           </>
         )}
 
         {tab === "impostazioni" && (
           <>
-            <div style={{ fontSize:11, color:theme.sub, marginBottom:4 }}>IMPOSTAZIONI</div>
+            <div style={{ fontSize:11,color:theme.sub,marginBottom:4 }}>IMPOSTAZIONI</div>
             <div style={s.card}>
               <div style={s.sectionTitle}>Tutorial</div>
-              <div style={{ fontSize:13, color:theme.sub, marginBottom:12 }}>Rivedi la guida introduttiva all'app.</div>
-              <button onClick={() => { setTutStep(0); setShowTutorial(true); }} style={{ ...s.greenBtn, marginTop:0 }}>Avvia tutorial</button>
+              <div style={{ fontSize:13,color:theme.sub,marginBottom:12 }}>Rivedi la guida introduttiva.</div>
+              <button onClick={()=>{setTutStep(0);setShowTutorial(true);}} style={{ ...s.greenBtn,marginTop:0 }}>Avvia tutorial</button>
             </div>
             <div style={s.card}>
               <div style={s.sectionTitle}>Tema colore</div>
-              <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-                {THEMES.map(t => (
-                  <div key={t.id} onClick={() => setThemeId(t.id)} style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"10px 12px", borderRadius:10, border:`1px solid ${themeId===t.id ? t.accent : theme.border}`, background: themeId===t.id ? t.bg : "transparent", cursor:"pointer" }}>
-                    <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-                      <div style={{ width:28, height:28, borderRadius:8, background:t.bg, border:`2px solid ${t.accent}`, display:"flex", alignItems:"center", justifyContent:"center" }}>
-                        <div style={{ width:12, height:12, borderRadius:3, background:t.accent }} />
-                      </div>
-                      <span style={{ fontSize:14, color:"#e2e8f0" }}>{t.label}</span>
+              <div style={{ display:"flex",flexDirection:"column",gap:8 }}>
+                {THEMES.map(t=>(
+                  <div key={t.id} onClick={()=>setThemeId(t.id)} style={{ display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 12px",borderRadius:10,border:`1px solid ${themeId===t.id?t.accent:theme.border}`,background:themeId===t.id?t.bg:"transparent",cursor:"pointer" }}>
+                    <div style={{ display:"flex",alignItems:"center",gap:10 }}>
+                      <div style={{ width:28,height:28,borderRadius:8,background:t.bg,border:`2px solid ${t.accent}`,display:"flex",alignItems:"center",justifyContent:"center" }}><div style={{ width:12,height:12,borderRadius:3,background:t.accent }}/></div>
+                      <span style={{ fontSize:14,color:"#e2e8f0" }}>{t.label}</span>
                     </div>
-                    {themeId===t.id && <span style={{ color:t.accent, fontSize:18 }}>✓</span>}
+                    {themeId===t.id&&<span style={{ color:t.accent,fontSize:18 }}>✓</span>}
                   </div>
                 ))}
               </div>
             </div>
             <div style={s.card}>
               <div style={s.sectionTitle}>Backup e ripristino</div>
-              <div style={{ fontSize:13, color:theme.sub, marginBottom:12 }}>Esporta i tuoi dati in un file JSON. Importalo per ripristinarli.</div>
-              <button onClick={() => {
-                const data = { spese, entrate, presets, speseFisse, extraCats, themeId };
-                const blob = new Blob([JSON.stringify(data, null, 2)], { type:"application/json" });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement("a");
-                a.href = url; a.download = `risparmia-backup-${MONTHS_IT[new Date().getMonth()].toLowerCase()}-${new Date().getFullYear()}.json`; a.click();
+              <div style={{ fontSize:13,color:theme.sub,marginBottom:12 }}>Esporta i tuoi dati in un file JSON. Importalo per ripristinarli.</div>
+              <button onClick={()=>{
+                const data={spese,entrate,presets,speseFisse,extraCats,themeId};
+                const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});
+                const url=URL.createObjectURL(blob);
+                const a=document.createElement("a");
+                a.href=url;a.download=`risparmia-backup-${MONTHS_IT[new Date().getMonth()].toLowerCase()}-${new Date().getFullYear()}.json`;a.click();
                 URL.revokeObjectURL(url);
-              }} style={{ ...s.greenBtn, marginTop:0, marginBottom:10 }}>Esporta backup</button>
-              <div style={{ fontSize:12, color:theme.sub, marginBottom:6 }}>Importa da file JSON</div>
-              <input type="file" accept=".json" onChange={e => {
-                const file = e.target.files[0]; if(!file) return;
-                const reader = new FileReader();
-                reader.onload = ev => {
-                  try {
-                    const d = JSON.parse(ev.target.result);
-                    if(d.spese) setSpese(d.spese);
-                    if(d.entrate) setEntrate(d.entrate);
-                    if(d.presets) setPresets(d.presets);
-                    if(d.speseFisse) setSpeseFisse(d.speseFisse);
-                    if(d.extraCats) setExtraCats(d.extraCats);
-                    if(d.themeId) setThemeId(d.themeId);
-                    alert("Dati ripristinati!");
-                  } catch { alert("File non valido."); }
-                };
-                reader.readAsText(file); e.target.value = "";
-              }} style={{ ...s.input, padding:"8px" }} />
+              }} style={{ ...s.greenBtn,marginTop:0,marginBottom:10 }}>Esporta backup</button>
+              <div style={{ fontSize:12,color:theme.sub,marginBottom:6 }}>Importa da file JSON</div>
+              <input type="file" accept=".json" onChange={e=>{
+                const file=e.target.files[0];if(!file)return;
+                const reader=new FileReader();
+                reader.onload=ev=>{try{const d=JSON.parse(ev.target.result);if(d.spese)setSpese(d.spese);if(d.entrate)setEntrate(d.entrate);if(d.presets)setPresets(d.presets);if(d.speseFisse)setSpeseFisse(d.speseFisse);if(d.extraCats)setExtraCats(d.extraCats);if(d.themeId)setThemeId(d.themeId);alert("Dati ripristinati!");}catch{alert("File non valido.");}};
+                reader.readAsText(file);e.target.value="";
+              }} style={{ ...s.input,padding:"8px" }}/>
             </div>
             <div style={s.card}>
               <div style={s.sectionTitle}>Dati</div>
-              <div style={{ fontSize:13, color:theme.sub, marginBottom:12 }}>Cancella tutti i dati. Operazione irreversibile.</div>
-              {!showResetConfirm
-                ? <button onClick={() => setShowResetConfirm(true)} style={{ width:"100%", background:"transparent", border:"1px solid #ef4444", borderRadius:8, color:"#ef4444", padding:"11px", fontSize:14, fontWeight:600, cursor:"pointer" }}>Cancella tutti i dati</button>
-                : <div style={{ background:theme.bg, borderRadius:10, padding:14 }}>
-                  <div style={{ fontSize:14, color:"#e2e8f0", marginBottom:12, textAlign:"center" }}>Sei sicuro? Non si puo annullare.</div>
-                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
-                    <button onClick={() => setShowResetConfirm(false)} style={{ background:theme.card, border:`1px solid ${theme.border}`, borderRadius:8, color:"#e2e8f0", padding:"10px", fontSize:14, cursor:"pointer" }}>Annulla</button>
-                    <button onClick={resetAll} style={{ background:"#ef4444", border:"none", borderRadius:8, color:"#fff", padding:"10px", fontSize:14, fontWeight:700, cursor:"pointer" }}>Si, cancella</button>
+              <div style={{ fontSize:13,color:theme.sub,marginBottom:12 }}>Cancella tutti i dati. Operazione irreversibile.</div>
+              {!showResetConfirm?<button onClick={()=>setShowResetConfirm(true)} style={{ width:"100%",background:"transparent",border:"1px solid #ef4444",borderRadius:8,color:"#ef4444",padding:"11px",fontSize:14,fontWeight:600,cursor:"pointer" }}>Cancella tutti i dati</button>:(
+                <div style={{ background:theme.bg,borderRadius:10,padding:14 }}>
+                  <div style={{ fontSize:14,color:"#e2e8f0",marginBottom:12,textAlign:"center" }}>Sei sicuro? Non si puo annullare.</div>
+                  <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:8 }}>
+                    <button onClick={()=>setShowResetConfirm(false)} style={{ background:theme.card,border:`1px solid ${theme.border}`,borderRadius:8,color:"#e2e8f0",padding:"10px",fontSize:14,cursor:"pointer" }}>Annulla</button>
+                    <button onClick={resetAll} style={{ background:"#ef4444",border:"none",borderRadius:8,color:"#fff",padding:"10px",fontSize:14,fontWeight:700,cursor:"pointer" }}>Si, cancella</button>
                   </div>
                 </div>
-              }
+              )}
             </div>
           </>
         )}
       </div>
 
-      <div style={{ fontSize:11, color:theme.sub, textAlign:"center", padding:"8px 0 12px" }}>
-        Made by Sances Federico & Claude<br />
+      <div style={{ fontSize:11,color:theme.sub,textAlign:"center",padding:"8px 0 12px" }}>
+        Made by Sances Federico & Claude<br/>
         <span style={{ fontSize:10 }}>(tipo grazie al cazzo mica so fare tutto questo da solo)</span>
       </div>
 
-      {/* TUTORIAL */}
-      {showTutorial && (
-        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.85)", display:"flex", alignItems:"flex-end", zIndex:200 }}>
-          <div style={{ background:theme.card, borderRadius:"20px 20px 0 0", padding:"28px 24px 36px", width:"100%", boxSizing:"border-box" }}>
-            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:24 }}>
-              <div style={{ display:"flex", gap:6 }}>
-                {TUT_STEPS.map((_, i) => (
-                  <div key={i} style={{ width: i===tutStep ? 20 : 6, height:6, borderRadius:3, background: i===tutStep ? theme.accent : theme.border, transition:"width 0.3s" }} />
-                ))}
-              </div>
-              <button onClick={() => setShowTutorial(false)} style={{ background:"none", border:"none", color:theme.sub, fontSize:14, cursor:"pointer" }}>Salta</button>
+      {showTutorial&&(
+        <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.85)",display:"flex",alignItems:"flex-end",zIndex:200 }}>
+          <div style={{ background:theme.card,borderRadius:"20px 20px 0 0",padding:"28px 24px 36px",width:"100%",boxSizing:"border-box" }}>
+            <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:24 }}>
+              <div style={{ display:"flex",gap:6 }}>{TUT_STEPS.map((_,i)=><div key={i} style={{ width:i===tutStep?20:6,height:6,borderRadius:3,background:i===tutStep?theme.accent:theme.border,transition:"width 0.3s" }}/>)}</div>
+              <button onClick={()=>setShowTutorial(false)} style={{ background:"none",border:"none",color:theme.sub,fontSize:14,cursor:"pointer" }}>Salta</button>
             </div>
-            <div style={{ textAlign:"center", marginBottom:28 }}>
-              <div style={{ fontSize:56, marginBottom:16 }}>{TUT_STEPS[tutStep].emoji}</div>
-              <div style={{ fontSize:20, fontWeight:700, color:"#fff", marginBottom:12 }}>{TUT_STEPS[tutStep].title}</div>
-              <div style={{ fontSize:14, color:theme.sub, lineHeight:1.6 }}>{TUT_STEPS[tutStep].desc}</div>
+            <div style={{ textAlign:"center",marginBottom:28 }}>
+              <div style={{ fontSize:56,marginBottom:16 }}>{TUT_STEPS[tutStep].emoji}</div>
+              <div style={{ fontSize:20,fontWeight:700,color:"#fff",marginBottom:12 }}>{TUT_STEPS[tutStep].title}</div>
+              <div style={{ fontSize:14,color:theme.sub,lineHeight:1.6 }}>{TUT_STEPS[tutStep].desc}</div>
             </div>
-            <div style={{ display:"grid", gridTemplateColumns: tutStep>0 ? "1fr 1fr" : "1fr", gap:10 }}>
-              {tutStep > 0 && (
-                <button onClick={() => setTutStep(s => s-1)} style={{ background:theme.bg, border:`1px solid ${theme.border}`, borderRadius:12, color:"#e2e8f0", padding:"14px", fontSize:15, cursor:"pointer" }}>Indietro</button>
-              )}
-              <button onClick={() => { if(tutStep < TUT_STEPS.length-1) setTutStep(s => s+1); else setShowTutorial(false); }} style={{ background:theme.accent, border:"none", borderRadius:12, color:theme.bg, padding:"14px", fontSize:15, fontWeight:700, cursor:"pointer" }}>
-                {tutStep < TUT_STEPS.length-1 ? "Avanti" : "Inizia!"}
-              </button>
+            <div style={{ display:"grid",gridTemplateColumns:tutStep>0?"1fr 1fr":"1fr",gap:10 }}>
+              {tutStep>0&&<button onClick={()=>setTutStep(s=>s-1)} style={{ background:theme.bg,border:`1px solid ${theme.border}`,borderRadius:12,color:"#e2e8f0",padding:"14px",fontSize:15,cursor:"pointer" }}>Indietro</button>}
+              <button onClick={()=>{if(tutStep<TUT_STEPS.length-1)setTutStep(s=>s+1);else setShowTutorial(false);}} style={{ background:theme.accent,border:"none",borderRadius:12,color:theme.bg,padding:"14px",fontSize:15,fontWeight:700,cursor:"pointer" }}>{tutStep<TUT_STEPS.length-1?"Avanti":"Inizia!"}</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* MODAL + */}
-      {showAddModal && (
-        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.7)", display:"flex", alignItems:"flex-end", zIndex:100 }} onClick={() => setShowAddModal(false)}>
-          <div style={{ background:theme.card, borderRadius:"16px 16px 0 0", padding:20, width:"100%", maxHeight:"85vh", overflowY:"auto", boxSizing:"border-box" }} onClick={e => e.stopPropagation()}>
-            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
-              <span style={{ fontWeight:700, fontSize:17 }}>Aggiungi</span>
-              <button onClick={() => setShowAddModal(false)} style={{ background:"none", border:"none", color:"#e2e8f0", fontSize:20, cursor:"pointer" }}>✕</button>
+      {showAddModal&&(
+        <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",display:"flex",alignItems:"flex-end",zIndex:100 }} onClick={()=>setShowAddModal(false)}>
+          <div style={{ background:theme.card,borderRadius:"16px 16px 0 0",padding:20,width:"100%",maxHeight:"85vh",overflowY:"auto",boxSizing:"border-box" }} onClick={e=>e.stopPropagation()}>
+            <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14 }}>
+              <span style={{ fontWeight:700,fontSize:17 }}>Aggiungi</span>
+              <button onClick={()=>setShowAddModal(false)} style={{ background:"none",border:"none",color:"#e2e8f0",fontSize:20,cursor:"pointer" }}>✕</button>
             </div>
-            <div style={{ display:"flex", background:theme.bg, borderRadius:10, padding:3, gap:3, marginBottom:16 }}>
-              <button style={s.seg(modalTab==="preset")} onClick={() => setModalTab("preset")}>⚡ Preset</button>
-              <button style={s.seg(modalTab==="categorie")} onClick={() => setModalTab("categorie")}>🏷 Categorie</button>
+            <div style={{ display:"flex",background:theme.bg,borderRadius:10,padding:3,gap:3,marginBottom:16 }}>
+              <button style={s.seg(modalTab==="preset")} onClick={()=>setModalTab("preset")}>⚡ Preset</button>
+              <button style={s.seg(modalTab==="categorie")} onClick={()=>setModalTab("categorie")}>🏷 Categorie</button>
             </div>
-
-            {modalTab === "preset" && (
+            {modalTab==="preset"&&(
               <>
-                {presets.map(p => (
-                  <div key={p.id} style={{ background:theme.bg, borderRadius:10, padding:"12px", marginBottom:8, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                    <div style={{ display:"flex", gap:10, alignItems:"center" }}>
-                      <span style={{ fontSize:18 }}>{getCatEmoji(p.categoria)}</span>
-                      <div><div style={{ fontWeight:600 }}>{p.nome}</div><div style={{ fontSize:12, color:"#a78bfa" }}>{fmt(p.importo)} € · {getCatLabel(p.categoria)}</div></div>
-                    </div>
-                    <button onClick={() => setPresets(prev => prev.filter(x => x.id!==p.id))} style={s.delBtn}>🗑</button>
+                {presets.map(p=>(
+                  <div key={p.id} style={{ background:theme.bg,borderRadius:10,padding:"12px",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+                    <div style={{ display:"flex",gap:10,alignItems:"center" }}><span style={{ fontSize:18 }}>{getCatEmoji(p.categoria)}</span><div><div style={{ fontWeight:600 }}>{p.nome}</div><div style={{ fontSize:12,color:"#a78bfa" }}>{fmt(p.importo)} € · {getCatLabel(p.categoria)}</div></div></div>
+                    <button onClick={()=>setPresets(prev=>prev.filter(x=>x.id!==p.id))} style={s.delBtn}>🗑</button>
                   </div>
                 ))}
                 <div style={{ marginTop:14 }}>
-                  <div style={{ fontWeight:600, marginBottom:10 }}>Nuovo preset</div>
-                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:8 }}>
-                    <div><div style={s.label}>Nome</div><input value={newPresetNome} onChange={e => setNewPresetNome(e.target.value)} placeholder="Es. Caffe" style={s.input} /></div>
-                    <div><div style={s.label}>Importo €</div><input value={newPresetAmt} onChange={e => setNewPresetAmt(e.target.value)} placeholder="0,00" type="number" style={s.input} /></div>
+                  <div style={{ fontWeight:600,marginBottom:10 }}>Nuovo preset</div>
+                  <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8 }}>
+                    <div><div style={s.label}>Nome</div><input value={newPresetNome} onChange={e=>setNewPresetNome(e.target.value)} placeholder="Es. Caffe" style={s.input}/></div>
+                    <div><div style={s.label}>Importo €</div><input value={newPresetAmt} onChange={e=>setNewPresetAmt(e.target.value)} placeholder="0,00" type="number" style={s.input}/></div>
                   </div>
-                  <div style={{ fontSize:12, color:theme.sub, marginBottom:6 }}>Categoria</div>
-                  <div style={s.catGrid}>{CATEGORIES.map(c => <button key={c.id} style={s.catPill(newPresetCat===c.id)} onClick={() => setNewPresetCat(c.id)}><span>{c.emoji}</span>{c.label}</button>)}</div>
-                  <button style={{ ...s.greenBtn, marginTop:12 }} onClick={addPreset}>Aggiungi preset</button>
+                  <div style={{ fontSize:12,color:theme.sub,marginBottom:6 }}>Categoria</div>
+                  <div style={s.catGrid}>{CATEGORIES.map(c=><button key={c.id} style={s.catPill(newPresetCat===c.id)} onClick={()=>setNewPresetCat(c.id)}><span>{c.emoji}</span>{c.label}</button>)}</div>
+                  <button style={{ ...s.greenBtn,marginTop:12 }} onClick={addPreset}>Aggiungi preset</button>
                 </div>
               </>
             )}
-
-            {modalTab === "categorie" && (
+            {modalTab==="categorie"&&(
               <>
-                {extraCats.length === 0
-                  ? <div style={{ color:theme.sub, fontSize:13, fontStyle:"italic", marginBottom:12 }}>Nessuna categoria personalizzata</div>
-                  : extraCats.map(c => (
-                    <div key={c.id} style={{ background:theme.bg, borderRadius:10, padding:"12px", marginBottom:8, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                      <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-                        <span style={{ fontSize:22 }}>{c.emoji}</span>
-                        <span style={{ fontWeight:600 }}>{c.label}</span>
-                      </div>
-                      <button onClick={() => setExtraCats(prev => prev.filter(x => x.id!==c.id))} style={s.delBtn}>🗑</button>
-                    </div>
-                  ))
-                }
-                <div style={{ marginTop:14 }}>
-                  <div style={{ fontWeight:600, marginBottom:10 }}>Nuova categoria</div>
-                  <div style={{ display:"grid", gridTemplateColumns:"2fr 1fr", gap:8, marginBottom:8 }}>
-                    <div><div style={s.label}>Nome</div><input value={newCatLabel} onChange={e => setNewCatLabel(e.target.value)} placeholder="Es. Animali" style={s.input} /></div>
-                    <div><div style={s.label}>Emoji</div><input value={newCatEmoji} onChange={e => setNewCatEmoji(e.target.value)} placeholder="🐾" style={s.input} /></div>
+                {extraCats.length===0?<div style={{ color:theme.sub,fontSize:13,fontStyle:"italic",marginBottom:12 }}>Nessuna categoria personalizzata</div>:extraCats.map(c=>(
+                  <div key={c.id} style={{ background:theme.bg,borderRadius:10,padding:"12px",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+                    <div style={{ display:"flex",alignItems:"center",gap:10 }}><span style={{ fontSize:22 }}>{c.emoji}</span><span style={{ fontWeight:600 }}>{c.label}</span></div>
+                    <button onClick={()=>setExtraCats(prev=>prev.filter(x=>x.id!==c.id))} style={s.delBtn}>🗑</button>
                   </div>
-                  <button style={{ ...s.greenBtn, marginTop:4 }} onClick={addExtraCat}>Aggiungi categoria</button>
+                ))}
+                <div style={{ marginTop:14 }}>
+                  <div style={{ fontWeight:600,marginBottom:10 }}>Nuova categoria</div>
+                  <div style={{ display:"grid",gridTemplateColumns:"2fr 1fr",gap:8,marginBottom:8 }}>
+                    <div><div style={s.label}>Nome</div><input value={newCatLabel} onChange={e=>setNewCatLabel(e.target.value)} placeholder="Es. Animali" style={s.input}/></div>
+                    <div><div style={s.label}>Emoji</div><input value={newCatEmoji} onChange={e=>setNewCatEmoji(e.target.value)} placeholder="🐾" style={s.input}/></div>
+                  </div>
+                  <button style={{ ...s.greenBtn,marginTop:4 }} onClick={addExtraCat}>Aggiungi categoria</button>
                 </div>
               </>
             )}
